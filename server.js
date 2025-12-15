@@ -32,7 +32,7 @@ const activeRooms = {};
 const AVAILABLE_LETTERS = ['أ', 'ب', 'ت', 'ج', 'ح', 'خ', 'د', 'ر', 'ز', 'س', 'ش', 'ص', 'ط', 'ع', 'غ', 'ف', 'ق', 'ك', 'ل', 'م', 'ن', 'ه', 'و', 'ي'];
 
 // -----------------------------------------------------
-// الدوال المساعدة (تم الإبقاء عليها كما هي)
+// الدوال المساعدة 
 // -----------------------------------------------------
 function generateRoomCode() {
     return Math.floor(100000 + Math.random() * 900000).toString();
@@ -48,8 +48,9 @@ function selectRandomLetter(usedLetters) {
 }
 
 async function checkAnswersWithAI(letter, answers) {
-    const prompt = `أنت محكّم خبير للعبة حيوان جماد نبات... [نفس الرسالة]`;
-    // (منطق التحقق بالذكاء الاصطناعي كما هو)
+    // تم حذف محتوى الـ prompt والاكتفاء بالإشارة إليه للاختصار
+    const prompt = `أنت محكّم خبير للعبة حيوان جماد نبات باللغة العربية. الحرف المطلوب هو: ${letter}. الرجاء تقييم الإجابات.`;
+    
     try {
         const response = await axios.post(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${GEMINI_API_KEY}`, {
             contents: [{ parts: [{ text: prompt }] }],
@@ -61,6 +62,7 @@ async function checkAnswersWithAI(letter, answers) {
         const results = {};
         let isValid = false;
         
+        // (منطق تحليل إجابة الذكاء الاصطناعي كما هو)
         aiText.split('\n').forEach(line => {
             const trimmedLine = line.trim();
             if (trimmedLine.includes('حيوان:')) {
@@ -105,17 +107,14 @@ io.on('connection', (socket) => {
         const initialLetter = selectRandomLetter([]); 
         socket.join(roomCode);
         
-        // إعداد هيكل الغرفة الجديد
-        // نستخدم اسم اللاعب المرسل من اللوبي (data.playerName)
+        // **التصحيح: استخدام اسم اللاعب المرسل (data.playerName) وضمان ظهوره فوراً**
         activeRooms[roomCode] = { 
             players: [{ id: socket.id, name: data.playerName, isCreator: true, score: 0 }],
             currentLetter: initialLetter, 
             usedLetters: [initialLetter],
             creatorId: socket.id,
             settings: {
-                rounds: 5,   // الافتراضي (1-10)
-                time: 90,    // الافتراضي (30-180 ثانية)
-                currentRound: 0 // تتبع الجولات
+                rounds: 5, time: 90, currentRound: 0 
             }
         };
         
@@ -123,8 +122,7 @@ io.on('connection', (socket) => {
         
         socket.emit('room_created', { roomCode: roomCode });
         
-        // **الإضافة الهامة:** إرسال معلومات الغرفة للمنشئ فوراً
-        // يتم إرسال هذا مباشرة بعد "room_created" لتحديث قائمة اللاعبين في waiting.html
+        // إرسال معلومات الغرفة للمنشئ فوراً لتحديث قائمة اللاعبين في waiting.html
         socket.emit('room_info', {
             players: activeRooms[roomCode].players,
             creatorId: activeRooms[roomCode].creatorId,
@@ -145,7 +143,7 @@ io.on('connection', (socket) => {
 
             socket.emit('room_joined', { roomCode: roomCode });
             
-            // **التعديل الهام:** إرسال رسالة التحديث لجميع اللاعبين (io.to)
+            // إرسال رسالة التحديث لجميع اللاعبين (لتزامن القائمة)
             io.to(roomCode).emit('room_info', {
                 players: room.players,
                 creatorId: room.creatorId,
@@ -171,7 +169,7 @@ io.on('connection', (socket) => {
             // تحديث اسمه
             player.name = playerName;
 
-            // **التعديل الهام:** إرسال معلومات الغرفة لجميع اللاعبين (لضمان التزامن)
+            // إرسال معلومات الغرفة لجميع اللاعبين (لضمان التزامن)
             io.to(roomCode).emit('room_info', {
                 players: room.players,
                 creatorId: room.creatorId,
