@@ -1,3 +1,6 @@
+// Start of Server.js
+// Final code update for URL synchronization
+
 // استدعاء المكتبات المطلوبة
 const express = require('express');
 const http = require('http');
