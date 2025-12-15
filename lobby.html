@@ -74,7 +74,7 @@
         }
         
         function browsePublicGroups() {
-            // يمكن تركها فارغة أو تحويلها إلى رسالة
+            // وظيفة معطلة حالياً
         }
 
         // ----------------- منطق الخادم ------------------
@@ -83,7 +83,7 @@
             document.getElementById('private-options-content').innerHTML = 
                 `<h3 style="text-align: center; color: #3498db;">جارٍ إنشاء الغرفة...</h3>`;
             
-            // **التعديل الهام: إرسال اسم اللاعب مع طلب إنشاء الغرفة**
+            // **إرسال اسم اللاعب مع طلب إنشاء الغرفة**
             socket.emit('create_room_request', { playerName: playerName });
         }
         
@@ -97,7 +97,7 @@
             }
         }
         
-        // الدالة الموحدة والمصححة للانتقال لصفحة الانتظار
+        // **الدالة الموحدة والمصححة للانتقال لصفحة الانتظار**
         function startGame(roomCode) {
             // التوجيه إلى صفحة الانتظار (waiting.html) مع تمرير الرمز في الرابط
             window.location.href = `waiting.html?roomCode=${roomCode}`; 

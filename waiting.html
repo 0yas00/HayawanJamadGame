@@ -1,157 +1,177 @@
 <!DOCTYPE html>
 <html lang="ar" dir="rtl">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>إعدادات الغرفة</title>
-    <link rel="stylesheet" href="style.css">
-    <script src="/socket.io/socket.io.js"></script>
-    <style>
-        /* تنسيقات بسيطة لصفحة الانتظار */
-        .settings-panel {
-            background-color: #ecf0f1;
-            padding: 20px;
-            border-radius: 10px;
-            margin-top: 20px;
-        }
-        .setting-item {
-            margin-bottom: 15px;
-        }
-        .setting-item label {
-            display: block;
-            font-weight: bold;
-            margin-bottom: 5px;
-        }
-    </style>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>إعدادات الغرفة - انتظار</title>
+    <link rel="stylesheet" href="style.css">
+    <script src="/socket.io/socket.io.js"></script>
+    <style>
+        /* ... (CSS هنا) ... */
+        .settings-panel { background-color: #ecf0f1; padding: 20px; border-radius: 10px; margin-top: 20px; }
+        .setting-item { margin-bottom: 15px; }
+        .setting-item label { display: block; font-weight: bold; margin-bottom: 5px; }
+        #player-list li { padding: 5px 0; border-bottom: 1px dotted #ccc; }
+        #settings-area { display: none; }
+        .lobby-container { width: 500px; max-width: 90%; margin: 20px auto; }
+    </style>
 </head>
 <body>
-    <div class="lobby-container" style="width: 500px;">
-        <h2>غرفة الانتظار: <span id="room-code-display" style="color:#e74c3c;"></span></h2>
-        
-        <div id="player-list-container">
-            <h3>اللاعبون المتواجدون:</h3>
-            <ul id="player-list" style="list-style-type: none; padding: 0;">
-                </ul>
-        </div>
+    <div class="lobby-container">
+        <h2>غرفة الانتظار: <span id="room-code-display" style="color:#e74c3c;"></span></h2>
+        
+        <div id="player-list-container">
+            <h3>اللاعبون المتواجدون:</h3>
+            <ul id="player-list" style="list-style-type: none; padding: 0;">
+                <li style="color: #7f8c8d;">جارٍ التحميل...</li>
+            </ul>
+        </div>
 
-        <div id="settings-area" class="settings-panel">
-            <h3>⚙️ إعدادات المباراة</h3>
-            <div id="settings-controls">
-                <div class="setting-item">
-                    <label for="rounds-count">عدد الجولات (1-10):</label>
-                    <input type="number" id="rounds-count" value="5" min="1" max="10">
-                </div>
-                <div class="setting-item">
-                    <label for="round-time">مدة الجولة بالثواني (30-180):</label>
-                    <input type="number" id="round-time" value="90" min="30" max="180">
-                </div>
-                <button class="main-play-button" onclick="sendSettings()">حفظ الإعدادات</button>
-            </div>
-            <p id="settings-message" style="margin-top: 10px;"></p>
-        </div>
+        <div id="settings-area" class="settings-panel">
+            <h3>⚙️ إعدادات المباراة</h3>
+            <div id="settings-controls">
+                <div class="setting-item">
+                    <label for="rounds-count">عدد الجولات (1-10):</label>
+                    <input type="number" id="rounds-count" value="5" min="1" max="10" style="width: 100%; padding: 8px;">
+                </div>
+                <div class="setting-item">
+                    <label for="round-time">مدة الجولة بالثواني (30-180):</label>
+                    <input type="number" id="round-time" value="90" min="30" max="180" style="width: 100%; padding: 8px;">
+                </div>
+                <button class="option-button" onclick="sendSettings()">حفظ الإعدادات</button>
+            </div>
+            <p id="settings-message" style="margin-top: 10px;"></p>
+        </div>
+        
+        <button class="main-play-button" style="margin-top: 30px;" id="start-btn" onclick="startGame()">
+            بدء الجولة
+        </button>
+        <p id="wait-message" style="text-align: center; color: #e67e22; margin-top: 15px;"></p>
+    </div>
 
-        <button class="main-play-button" style="margin-top: 30px;" onclick="startGame()">
-            بدء اللعب
-        </button>
-    </div>
+    <script>
+        // دالة قراءة الـ URL
+        function getUrlParameter(name) {
+            name = name.replace(/[\[]/, '\\[').replace(/[\]]/, '\\]');
+            var regex = new RegExp('[\\?&]' + name + '=([^&#]*)');
+            var results = regex.exec(location.search);
+            return results === null ? '' : decodeURIComponent(results[1].replace(/\+/g, ' '));
+        }
 
-    <script>
-        // دالة قراءة الـ URL (كما في game.html)
-        function getUrlParameter(name) {
-            name = name.replace(/[\[]/, '\\[').replace(/[\]]/, '\\]');
-            var regex = new RegExp('[\\?&]' + name + '=([^&#]*)');
-            var results = regex.exec(location.search);
-            return results === null ? '' : decodeURIComponent(results[1].replace(/\+/g, ' '));
-        }
+        const ROOM_CODE = getUrlParameter('roomCode');
+        const playerName = localStorage.getItem('gameUsername') || 'لاعب مجهول';
+        
+        if (!ROOM_CODE || ROOM_CODE.length !== 6) {
+            alert('خطأ: لم يتم تحديد الغرفة. يرجى البدء من اللوبي.');
+            window.location.href = 'lobby.html';
+        }
+        
+        document.getElementById('room-code-display').textContent = ROOM_CODE;
+        
+        const socket = io({ 
+             // فرض استخدام WebSockets لحل مشكلة Render
+             transports: ['websocket'], 
+             upgrade: false
+        });
 
-        const ROOM_CODE = getUrlParameter('roomCode');
-        const playerName = localStorage.getItem('gameUsername') || 'لاعب مجهول';
-        
-        if (!ROOM_CODE) {
-            alert('خطأ: لم يتم تحديد الغرفة.');
-            window.location.href = 'lobby.html';
-        }
-        
-        document.getElementById('room-code-display').textContent = ROOM_CODE;
-        const socket = io();
+        let isRoomCreator = false;
+        
+        socket.on('connect', () => {
+            // 1. عند الاتصال، يرسل اللاعب هويته ورقم الغرفة ليتم إضافته للقائمة واستقبال الإعدادات
+            socket.emit('identify_player', { roomCode: ROOM_CODE, playerName: playerName });
+        });
 
-        socket.on('connect', () => {
-            // إرسال طلب للانضمام إلى الغرفة وتحديد الهوية كلاعب
-            socket.emit('identify_player', { roomCode: ROOM_CODE, playerName: playerName });
-        });
+        // ----------------- منطق إدارة الإعدادات وقائمة اللاعبين -----------------
 
-        // -----------------------------------------------------
-        // 2. منطق إدارة الإعدادات (يحتاج إلى دعم من server.js)
-        // -----------------------------------------------------
+        // استقبال معلومات الغرفة من الخادم
+        socket.on('room_info', (data) => {
+            updatePlayerList(data.players, data.creatorId);
 
-        let isRoomCreator = false; // هل هذا اللاعب هو منشئ الغرفة؟
+            isRoomCreator = (data.creatorId === socket.id);
+            const startButton = document.getElementById('start-btn');
+            const settingsArea = document.getElementById('settings-area');
+            const waitMessage = document.getElementById('wait-message');
 
-        // استقبال معلومات الغرفة من الخادم
-        socket.on('room_info', (data) => {
-            updatePlayerList(data.players);
+            if (isRoomCreator) {
+                // منشئ الغرفة: يمكنه التحكم
+                settingsArea.style.display = 'block';
+                startButton.textContent = 'بدء الجولة الأولى';
+                waitMessage.textContent = 'أنت المنشئ. اضبط الإعدادات وابدأ اللعب.';
+                
+                // تحديث القيم الحالية للإعدادات
+                document.getElementById('rounds-count').value = data.settings.rounds;
+                document.getElementById('round-time').value = data.settings.time;
+            } else {
+                // لاعب عادي: ينتظر
+                settingsArea.style.display = 'none';
+                startButton.textContent = 'الانتظار للمنشئ...';
+                startButton.disabled = true;
+                waitMessage.textContent = 
+                    `الانتظار لبدء الجولة. الوقت: ${data.settings.time} ثانية، الجولات: ${data.settings.rounds}.`;
+            }
+        });
 
-            // إظهار الإعدادات لمنشئ الغرفة فقط
-            if (data.creatorId === socket.id) {
-                isRoomCreator = true;
-                document.getElementById('settings-area').style.display = 'block';
-                // تحديث القيم الحالية للإعدادات
-                document.getElementById('rounds-count').value = data.settings.rounds;
-                document.getElementById('round-time').value = data.settings.time;
-            } else {
-                // إخفاء عناصر التحكم عن اللاعبين الآخرين
-                document.getElementById('settings-controls').style.display = 'none';
-                document.getElementById('settings-message').textContent = 
-                    `الانتظار لإعدادات المنشئ. الوقت: ${data.settings.time} ثانية، الجولات: ${data.settings.rounds}.`;
-            }
-        });
-
-        function updatePlayerList(players) {
-            const list = document.getElementById('player-list');
-            list.innerHTML = '';
-            players.forEach(p => {
-                const item = document.createElement('li');
-                item.textContent = p.name + (p.id === socket.id ? " (أنت)" : "");
-                if (p.isCreator) {
-                     item.textContent += " (المنشئ)";
-                     item.style.fontWeight = 'bold';
+        // **هذه هي الدالة المصححة**
+        function updatePlayerList(players, creatorId) {
+            const list = document.getElementById('player-list');
+            list.innerHTML = '';
+            players.forEach(p => {
+                const item = document.createElement('li');
+                
+                let role;
+                if (p.id === creatorId) {
+                    role = "منشئ المجموعة";
+                } else {
+                    role = "عضو";
                 }
-                list.appendChild(item);
-            });
-        }
 
-        function sendSettings() {
-            if (!isRoomCreator) return;
-
-            const rounds = parseInt(document.getElementById('rounds-count').value);
-            const time = parseInt(document.getElementById('round-time').value);
-
-            // التحقق من القيود (30 ثانية إلى 180 ثانية، 1 إلى 10 جولات)
-            if (rounds < 1 || rounds > 10 || time < 30 || time > 180) {
-                alert("الرجاء تحديد قيم صحيحة للإعدادات.");
-                return;
-            }
-            
-            // إرسال الإعدادات الجديدة إلى الخادم
-            socket.emit('update_settings', { roomCode: ROOM_CODE, rounds: rounds, time: time });
-            document.getElementById('settings-message').textContent = "تم حفظ الإعدادات بنجاح.";
-        }
-
-        function startGame() {
-            if (!isRoomCreator) {
-                 alert("فقط منشئ الغرفة يمكنه بدء اللعب.");
-                 return;
-            }
-            // إرسال أمر بدء اللعب إلى الخادم
-            socket.emit('start_game', { roomCode: ROOM_CODE });
-        }
-
-        // الاستماع لأمر بدء اللعب من الخادم
-        socket.on('game_started', (data) => {
-            // التوجيه إلى صفحة اللعب عند وصول أمر البدء من الخادم
-            window.location.href = `game.html?roomCode=${data.roomCode}`;
-        });
+                // دمج الدور مع اسم اللاعب وتمييز 'أنت'
+                const displayRole = (p.id === socket.id) ? "أنت" : role;
+                item.textContent = `${p.name} (${displayRole})`;
+                
+                if (p.id === creatorId) {
+                     item.style.fontWeight = 'bold';
+                     item.style.color = '#2980b9';
+                }
+                list.appendChild(item);
+            });
+        }
         
-        // ... (بقية الـ listeners)
-    </script>
+        function sendSettings() {
+            if (!isRoomCreator) return;
+
+            const rounds = parseInt(document.getElementById('rounds-count').value);
+            const time = parseInt(document.getElementById('round-time').value);
+
+            // التحقق من القيود
+            if (rounds < 1 || rounds > 10) {
+                alert("عدد الجولات يجب أن يتراوح بين 1 و 10.");
+                return;
+            }
+            if (time < 30 || time > 180) {
+                alert("مدة الجولة يجب أن تكون بين 30 و 180 ثانية.");
+                return;
+            }
+            
+            // إرسال الإعدادات الجديدة إلى الخادم
+            socket.emit('update_settings', { roomCode: ROOM_CODE, rounds: rounds, time: time });
+            document.getElementById('settings-message').textContent = "✅ تم حفظ الإعدادات بنجاح.";
+        }
+
+        function startGame() {
+            if (!isRoomCreator) {
+                 alert("فقط منشئ الغرفة يمكنه بدء اللعب.");
+                 return;
+            }
+            // إرسال أمر بدء اللعب إلى الخادم
+            socket.emit('start_game', { roomCode: ROOM_CODE });
+        }
+
+        // الاستماع لأمر بدء اللعب من الخادم (يتم إرساله للجميع)
+        socket.on('game_started', (data) => {
+            // التوجيه إلى صفحة اللعب عند وصول أمر البدء
+            window.location.href = `game.html?roomCode=${data.roomCode}`;
+        });
+    </script>
 </body>
 </html>

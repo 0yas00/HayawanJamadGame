@@ -144,7 +144,10 @@
         
         const playerName = localStorage.getItem('gameUsername') || 'لاعب مجهول';
         
-        const socket = io();
+       const socket = io({ 
+    transports: ['websocket'], // فرض استخدام WebSockets فقط
+    upgrade: false
+});
 
         // ----------------- الدوال المساعدة ------------------
 
