@@ -101,7 +101,7 @@
         <div class="game-header">
             <div>
                 <div style="font-size: 20px; color: #7f8c8d;">الحرف المخصص:</div>
-                <div class="challenge-letter" id="current-letter"></div> 
+                <div class="challenge-letter" id="current-letter">?</div> 
             </div>
             <div id="timer">01:00</div>
         </div>
@@ -118,56 +118,77 @@
     </div>
 
     <script>
-        // جلب رمز الغرفة والحرف من localStorage
-        const ROOM_CODE = localStorage.getItem('currentRoomCode');
-        let currentLetter = localStorage.getItem('initialGameLetter');
-        
-        // إذا لم يكن هناك رمز غرفة، نعيد اللاعب إلى اللوبي
-        if (!ROOM_CODE || !currentLetter) {
-            alert('خطأ: لم يتم تحديد الغرفة والحرف. يرجى البدء من اللوبي.');
-            window.location.href = 'lobby.html';
+        // دالة للحصول على باراميترات (Parameters) من رابط URL
+        function getUrlParameter(name) {
+            name = name.replace(/[\[]/, '\\[').replace(/[\]]/, '\\]');
+            var regex = new RegExp('[\\?&]' + name + '=([^&#]*)');
+            var results = regex.exec(location.search);
+            return results === null ? '' : decodeURIComponent(results[1].replace(/\+/g, ' '));
         }
 
+        // ------------------------------------------------------------------
+
+        // قراءة رمز الغرفة مباشرة من رابط URL بدلاً من localStorage
+        const ROOM_CODE = getUrlParameter('roomCode');
+        
+        // التحقق من أن الرمز موجود
+        if (!ROOM_CODE || ROOM_CODE.length !== 6) {
+            alert('خطأ: لم يتم تحديد الغرفة أو الرمز غير صحيح. يرجى البدء من اللوبي.');
+            window.location.href = 'lobby.html';
+        }
+        
         let timerInterval;
-        let timeRemaining = 60; // دقيقة واحدة
+        let timeRemaining = 60;
         let gameRunning = true;
+        let currentLetter = ''; // الحرف يبدأ مجهولاً
         
         const playerName = localStorage.getItem('gameUsername') || 'لاعب مجهول';
         
-        // 1. الاتصال بـ Socket.IO والخادم
         const socket = io();
 
         socket.on('connect', () => {
-            console.log(`متصل بالخادم عبر Socket.IO في الغرفة: ${ROOM_CODE}`);
+            console.log(`متصل بالخادم في الغرفة: ${ROOM_CODE}`);
+            // طلب الحرف فور الاتصال
+            requestGameLetter(); 
         });
 
-        // 2. استقبال رسالة الإيقاف الناجح من الخادم
-        socket.on('time_stopped', (data) => {
-            if (gameRunning) {
-                clearInterval(timerInterval); // إيقاف المؤقت فوراً
-                gameRunning = false;
-                document.getElementById('stop-btn').disabled = true;
-                
-                // عرض رسالة نظام
-                displaySystemMessage(data.message, '#5cb85c'); // لون أخضر للنجاح
-                
-                // **الخطوة التالية:** توجيه إلى صفحة النتائج (results.html)
-                // مثال: setTimeout(() => { window.location.href = 'results.html'; }, 3000);
+        // ----------------- الدوال الجديدة ------------------
+
+        // دالة طلب الحرف من الخادم عند بدء اللعب
+        function requestGameLetter() {
+            socket.emit('get_room_letter', ROOM_CODE);
+            document.getElementById('current-letter').textContent = '?';
+        }
+
+        // الاستماع لرد الخادم بالحرف
+        socket.on('room_letter', (data) => {
+            if (data.currentLetter) {
+                // تحديث الحرف المعروض وبدء اللعب
+                updateLetterDisplay(data.currentLetter); 
+                currentLetter = data.currentLetter;
             }
         });
         
-        // 3. استقبال رسالة فشل الإيقاف من الخادم (بسبب إجابات خاطئة)
+        // ----------------- Socket Listeners ------------------
+
+        socket.on('time_stopped', (data) => {
+            if (gameRunning) {
+                clearInterval(timerInterval); 
+                gameRunning = false;
+                document.getElementById('stop-btn').disabled = true;
+                displaySystemMessage(data.message, '#5cb85c');
+            }
+        });
+        
         socket.on('stop_failed', (data) => {
-            // اللاعب الذي أوقف هو الوحيد الذي يتلقى هذه الرسالة
-            displaySystemMessage(data.message, '#f0ad4e'); // لون برتقالي للفشل
-            
-            // إعادة تشغيل المؤقت وإتاحة الزر مرة أخرى
+            displaySystemMessage(data.message, '#f0ad4e');
             gameRunning = true;
             document.getElementById('stop-btn').disabled = false;
-            startTimer(); // استكمال العد التنازلي
+            startTimer(); 
         });
 
-        // 4. دالة عرض رسائل النظام
+        // ----------------- الدوال الأساسية ------------------
+
         function displaySystemMessage(message, color) {
             const sysMsg = document.getElementById('system-message');
             sysMsg.textContent = message;
@@ -175,10 +196,17 @@
             sysMsg.style.display = 'block';
             setTimeout(() => {
                 sysMsg.style.display = 'none';
-            }, 5000); // إخفاء الرسالة بعد 5 ثوان
+            }, 5000); 
         }
 
-        // 5. وظيفة تحديث المؤقت
+        function updateLetterDisplay(letter) {
+            document.getElementById('current-letter').textContent = letter;
+            document.querySelectorAll('.answer-box input').forEach(input => {
+                const category = input.getAttribute('data-category');
+                input.placeholder = `أدخل ${category} بحرف ${letter}`;
+            });
+        }
+
         function updateTimerDisplay() {
             const minutes = Math.floor(timeRemaining / 60);
             const seconds = timeRemaining % 60;
@@ -186,7 +214,6 @@
                 `${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
         }
 
-        // 6. وظيفة بدء المؤقت
         function startTimer() {
             timerInterval = setInterval(() => {
                 if (timeRemaining > 0 && gameRunning) {
@@ -196,23 +223,11 @@
                     clearInterval(timerInterval);
                     gameRunning = false;
                     document.getElementById('stop-btn').disabled = true;
-                    displaySystemMessage("انتهى الوقت! سيتم مراجعة إجاباتك.", '#dc3545'); // لون أحمر
-                    // هنا يتم إرسال طلب مراجعة نهائية للإجابات
+                    displaySystemMessage("انتهى الوقت! سيتم مراجعة إجاباتك.", '#dc3545'); 
                 }
             }, 1000); 
         }
 
-        // 7. وظيفة تحديث وعرض الحرف على الشاشة
-        function updateLetterDisplay(letter) {
-            document.getElementById('current-letter').textContent = letter;
-            // تحديث placeholder بناءً على الحرف الجديد
-            document.querySelectorAll('.answer-box input').forEach(input => {
-                const category = input.getAttribute('data-category');
-                input.placeholder = `أدخل ${category} بحرف ${letter}`;
-            });
-        }
-
-        // 8. وظيفة جمع إجابات اللاعب
         function getPlayerAnswers() {
             const categories = ['اسم', 'حيوان', 'نبات', 'جماد', 'بلاد'];
             const answers = {};
@@ -223,18 +238,14 @@
             return answers;
         }
 
-        // 9. وظيفة معالجة ضغط زر "توقف"
         function handleStopGame() {
-            if (!gameRunning) return;
+            if (!gameRunning || !currentLetter) return; // منع التوقف إذا لم يظهر الحرف بعد
 
-            // إيقاف المؤقت محلياً قبل إرسال الطلب
             clearInterval(timerInterval);
             document.getElementById('stop-btn').disabled = true; 
 
             const answers = getPlayerAnswers();
-            const currentLetter = document.getElementById('current-letter').textContent.trim(); // قراءة الحرف المعروض
 
-            // إرسال رسالة الإيقاف إلى الخادم مع البيانات (للتحقق بالذكاء الاصطناعي)
             socket.emit('stop_game_request', { 
                 roomCode: ROOM_CODE, 
                 playerName: playerName,
@@ -247,7 +258,6 @@
 
         // بدء اللعب عند تحميل الصفحة
         window.onload = function() {
-            updateLetterDisplay(currentLetter); // تحديث الحرف عند بدء اللعب
             updateTimerDisplay(); 
             startTimer(); 
         };

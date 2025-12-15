@@ -30,7 +30,7 @@
                     <button class="option-button" id="create-btn" onclick="createPrivateRoom()">إنشاء مجموعة</button>
                     <div style="margin-top: 10px; display: flex; justify-content: space-between;">
                         <input type="text" id="room-code-input" placeholder="أدخل رمز المجموعة هنا" style="width: 68%; text-align: right;">
-                        <button class="option-button join" id="join-btn" style="width: 30%;" onclick="joinPrivateRoom()">انضمام</button>
+                        <button class="option-button join" id="join-btn" onclick="joinPrivateRoom()">انضمام</button>
                     </div>
                 </div>
             </div>
@@ -64,7 +64,7 @@
         
         function browsePublicGroups() {
             alert("جارٍ تصفح المجموعات العامة... (توجيه للاختبار)");
-            window.location.href = 'game.html'; 
+            startGame("TEST_ROOM_PUBLIC"); // استخدام رمز عام للاختبار
         }
 
         // ----------------- منطق الخادم ------------------
@@ -75,7 +75,7 @@
             
             socket.emit('create_room_request');
         }
-
+        
         function joinPrivateRoom() {
             const code = document.getElementById('room-code-input').value.trim();
             if (code && code.length === 6) {
@@ -86,11 +86,13 @@
             }
         }
         
+        // **الدالة الموحدة والمصححة للانتقال لصفحة اللعب**
         function startGame(roomCode) {
-            // نحفظ الرمز فقط، والحرف يبقى مجهولاً
-            localStorage.setItem('currentRoomCode', roomCode);
-            localStorage.removeItem('initialGameLetter'); 
-            window.location.href = 'game.html';
+            // نمرر الرمز مباشرة في رابط URL لضمان قراءته بشكل موثوق
+            localStorage.setItem('gameUsername', playerName); // التأكد من حفظ اسم اللاعب
+            localStorage.removeItem('currentRoomCode'); // إيقاف استخدام localStorage لتمرير الرمز
+            
+            window.location.href = `game.html?roomCode=${roomCode}`;
         }
 
         // ----------------- Socket Listeners ------------------
@@ -102,7 +104,9 @@
                 <h3 style="text-align: center; color: #2ecc71;">تم إنشاء الغرفة بنجاح!</h3>
                 <p style="text-align: center;">شارك هذا الرمز مع أصدقائك:</p>
                 <h2 style="color: #e74c3c; text-align: center;">${data.roomCode}</h2>
-                <h3 style="text-align: center; color: #f39c12;">الحرف سري وسيعلن عند بدء اللعب!</h3> <button class="option-button main-play-button" style="width: 100%; margin-top: 20px;" 
+                <h3 style="text-align: center; color: #f39c12;">الحرف سري وسيعلن عند بدء اللعب!</h3>
+                
+                <button class="option-button main-play-button" style="width: 100%; margin-top: 20px;" 
                     onclick="startGame('${data.roomCode}')">
                     بدء اللعب
                 </button>
@@ -124,7 +128,7 @@
                 <button class="option-button" id="create-btn" onclick="createPrivateRoom()">إنشاء مجموعة</button>
                 <div style="margin-top: 10px; display: flex; justify-content: space-between;">
                     <input type="text" id="room-code-input" placeholder="أدخل رمز المجموعة هنا" style="width: 68%; text-align: right;">
-                    <button class="option-button join" id="join-btn" style="width: 30%;" onclick="joinPrivateRoom()">انضمام</button>
+                    <button class="option-button join" id="join-btn" onclick="joinPrivateRoom()">انضمام</button>
                 </div>
              </div>`;
              document.getElementById('private-options').style.display = 'flex';
