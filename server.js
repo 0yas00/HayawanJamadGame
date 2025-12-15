@@ -23,7 +23,7 @@ const PORT = process.env.PORT || 3000;
 // ** مفتاح Gemini API الخاص بك **
 // ******************************************************
 // ملاحظة: يُفضل استخدام process.env.GEMINI_API_KEY على Render
-const GEMINI_API_KEY = process.env.GEMINI_API_KEY || "AIzaSyAi4LC7bmWF3RJq8BaH025NelxAnFzWta8"; 
+const GEMINI_API_KEY = process.env.ENV_GEMINI_API_KEY || "AIzaSyAi4LC7bmWF3RJq8BaH025NelxAnFzWta8"; 
 
 // هيكل لحفظ الغرف النشطة وبياناتها (هيكل جديد يدعم الإعدادات)
 const activeRooms = {}; 
@@ -107,7 +107,7 @@ io.on('connection', (socket) => {
         const initialLetter = selectRandomLetter([]); 
         socket.join(roomCode);
         
-        // **التصحيح: استخدام اسم اللاعب المرسل (data.playerName) وضمان ظهوره فوراً**
+        // **التصحيح: استخدام اسم اللاعب المرسل (data.playerName) لضمان ظهوره فوراً**
         activeRooms[roomCode] = { 
             players: [{ id: socket.id, name: data.playerName, isCreator: true, score: 0 }],
             currentLetter: initialLetter, 
