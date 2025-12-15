@@ -32,7 +32,7 @@ const activeRooms = {};
 const AVAILABLE_LETTERS = ['أ', 'ب', 'ت', 'ج', 'ح', 'خ', 'د', 'ر', 'ز', 'س', 'ش', 'ص', 'ط', 'ع', 'غ', 'ف', 'ق', 'ك', 'ل', 'م', 'ن', 'ه', 'و', 'ي'];
 
 // -----------------------------------------------------
-// الدوال المساعدة (كما هي)
+// الدوال المساعدة (تم الإبقاء عليها كما هي)
 // -----------------------------------------------------
 function generateRoomCode() {
     return Math.floor(100000 + Math.random() * 900000).toString();
@@ -50,7 +50,6 @@ function selectRandomLetter(usedLetters) {
 async function checkAnswersWithAI(letter, answers) {
     const prompt = `أنت محكّم خبير للعبة حيوان جماد نبات... [نفس الرسالة]`;
     // (منطق التحقق بالذكاء الاصطناعي كما هو)
-    // ... (تم حذف الكود للاختصار، لكنه سليم)
     try {
         const response = await axios.post(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${GEMINI_API_KEY}`, {
             contents: [{ parts: [{ text: prompt }] }],
@@ -107,8 +106,9 @@ io.on('connection', (socket) => {
         socket.join(roomCode);
         
         // إعداد هيكل الغرفة الجديد
+        // نستخدم اسم اللاعب المرسل من اللوبي (data.playerName)
         activeRooms[roomCode] = { 
-            players: [{ id: socket.id, name: "غير محدد", isCreator: true, score: 0 }],
+            players: [{ id: socket.id, name: data.playerName, isCreator: true, score: 0 }],
             currentLetter: initialLetter, 
             usedLetters: [initialLetter],
             creatorId: socket.id,
@@ -122,6 +122,14 @@ io.on('connection', (socket) => {
         console.log(`تم إنشاء الغرفة: ${roomCode} بالحرف ${initialLetter}`);
         
         socket.emit('room_created', { roomCode: roomCode });
+        
+        // **الإضافة الهامة:** إرسال معلومات الغرفة للمنشئ فوراً
+        // يتم إرسال هذا مباشرة بعد "room_created" لتحديث قائمة اللاعبين في waiting.html
+        socket.emit('room_info', {
+            players: activeRooms[roomCode].players,
+            creatorId: activeRooms[roomCode].creatorId,
+            settings: activeRooms[roomCode].settings
+        });
     });
 
     // 2. طلب الانضمام لغرفة خاصة (من صفحة اللوبي)
@@ -137,7 +145,7 @@ io.on('connection', (socket) => {
 
             socket.emit('room_joined', { roomCode: roomCode });
             
-            // إعلام جميع اللاعبين في الغرفة (بما فيهم المنضم) لتحديث قائمة اللاعبين
+            // **التعديل الهام:** إرسال رسالة التحديث لجميع اللاعبين (io.to)
             io.to(roomCode).emit('room_info', {
                 players: room.players,
                 creatorId: room.creatorId,
@@ -154,16 +162,16 @@ io.on('connection', (socket) => {
         const room = activeRooms[roomCode];
 
         if (room) {
-            // تحديث اسم اللاعب (إذا كان "غير محدد")
             let player = room.players.find(p => p.id === socket.id);
-            if (player) {
-                player.name = playerName;
-            } else {
-                 // في حال انضم مباشرة لصفحة الانتظار (لتجنب الخطأ)
-                 room.players.push({ id: socket.id, name: playerName, isCreator: false, score: 0 });
+            if (!player) {
+                 // إضافة اللاعب إذا لم يكن موجوداً (في حال أرسل الرابط مباشرة)
+                 player = { id: socket.id, name: playerName, isCreator: false, score: 0 };
+                 room.players.push(player);
             }
+            // تحديث اسمه
+            player.name = playerName;
 
-            // إرسال معلومات الغرفة للجميع لتحديث قائمة اللاعبين والإعدادات
+            // **التعديل الهام:** إرسال معلومات الغرفة لجميع اللاعبين (لضمان التزامن)
             io.to(roomCode).emit('room_info', {
                 players: room.players,
                 creatorId: room.creatorId,
