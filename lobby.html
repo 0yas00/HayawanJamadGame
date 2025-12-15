@@ -36,7 +36,7 @@
             </div>
             
             <h4 style="margin-top: 20px;">مجموعات عامة</h4>
-            <button class="option-button join" onclick="browsePublicGroups()">
+            <button class="option-button join" onclick="alert('المجموعات العامة غير متاحة حالياً.')">
                 تصفح المجموعات العامة
             </button>
         </div>
@@ -44,7 +44,18 @@
 
     <script>
         const socket = io();
-        const playerName = localStorage.getItem('gameUsername') || 'لاعب جديد';
+        // قراءة اسم اللاعب من localStorage أو تعيين قيمة افتراضية
+        let playerName = localStorage.getItem('gameUsername') || 'لاعب جديد';
+        
+        // إذا كان الاسم الافتراضي، اطلب من اللاعب إدخاله
+        if (playerName === 'لاعب جديد') {
+            const inputName = prompt("الرجاء إدخال اسمك:");
+            if (inputName && inputName.trim() !== '') {
+                playerName = inputName.trim();
+                localStorage.setItem('gameUsername', playerName);
+            }
+        }
+        
         document.getElementById('welcome-msg').innerHTML = `مرحباً بك، **${playerName}**!`;
 
         // ----------------- دوال الواجهة ------------------
@@ -63,8 +74,7 @@
         }
         
         function browsePublicGroups() {
-            alert("جارٍ تصفح المجموعات العامة... (توجيه للاختبار)");
-            startGame("TEST_ROOM_PUBLIC"); // استخدام رمز عام للاختبار
+            // يمكن تركها فارغة أو تحويلها إلى رسالة
         }
 
         // ----------------- منطق الخادم ------------------
@@ -73,7 +83,8 @@
             document.getElementById('private-options-content').innerHTML = 
                 `<h3 style="text-align: center; color: #3498db;">جارٍ إنشاء الغرفة...</h3>`;
             
-            socket.emit('create_room_request');
+            // **التعديل الهام: إرسال اسم اللاعب مع طلب إنشاء الغرفة**
+            socket.emit('create_room_request', { playerName: playerName });
         }
         
         function joinPrivateRoom() {
@@ -86,13 +97,10 @@
             }
         }
         
-        // **الدالة الموحدة والمصححة للانتقال لصفحة اللعب**
+        // الدالة الموحدة والمصححة للانتقال لصفحة الانتظار
         function startGame(roomCode) {
-            // نمرر الرمز مباشرة في رابط URL لضمان قراءته بشكل موثوق
-            localStorage.setItem('gameUsername', playerName); // التأكد من حفظ اسم اللاعب
-            localStorage.removeItem('currentRoomCode'); // إيقاف استخدام localStorage لتمرير الرمز
-            
-            window.location.href = `game.html?roomCode=${roomCode}`;
+            // التوجيه إلى صفحة الانتظار (waiting.html) مع تمرير الرمز في الرابط
+            window.location.href = `waiting.html?roomCode=${roomCode}`; 
         }
 
         // ----------------- Socket Listeners ------------------
@@ -104,18 +112,18 @@
                 <h3 style="text-align: center; color: #2ecc71;">تم إنشاء الغرفة بنجاح!</h3>
                 <p style="text-align: center;">شارك هذا الرمز مع أصدقائك:</p>
                 <h2 style="color: #e74c3c; text-align: center;">${data.roomCode}</h2>
-                <h3 style="text-align: center; color: #f39c12;">الحرف سري وسيعلن عند بدء اللعب!</h3>
+                <h3 style="text-align: center; color: #f39c12;">الحرف سري والإعدادات تظهر في صفحة الانتظار!</h3>
                 
                 <button class="option-button main-play-button" style="width: 100%; margin-top: 20px;" 
                     onclick="startGame('${data.roomCode}')">
-                    بدء اللعب
+                    الانتقال لغرفة الانتظار
                 </button>
             `;
         });
         
         // عند الانضمام بنجاح إلى غرفة موجودة
         socket.on('room_joined', (data) => {
-             alert(`انضممت بنجاح إلى الغرفة ${data.roomCode}. الحرف سري.`);
+             alert(`انضممت بنجاح إلى الغرفة ${data.roomCode}. جارٍ التوجيه لصفحة الانتظار...`);
              startGame(data.roomCode);
         });
 

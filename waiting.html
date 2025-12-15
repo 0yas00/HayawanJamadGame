@@ -1,0 +1,157 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>إعدادات الغرفة</title>
+    <link rel="stylesheet" href="style.css">
+    <script src="/socket.io/socket.io.js"></script>
+    <style>
+        /* تنسيقات بسيطة لصفحة الانتظار */
+        .settings-panel {
+            background-color: #ecf0f1;
+            padding: 20px;
+            border-radius: 10px;
+            margin-top: 20px;
+        }
+        .setting-item {
+            margin-bottom: 15px;
+        }
+        .setting-item label {
+            display: block;
+            font-weight: bold;
+            margin-bottom: 5px;
+        }
+    </style>
+</head>
+<body>
+    <div class="lobby-container" style="width: 500px;">
+        <h2>غرفة الانتظار: <span id="room-code-display" style="color:#e74c3c;"></span></h2>
+        
+        <div id="player-list-container">
+            <h3>اللاعبون المتواجدون:</h3>
+            <ul id="player-list" style="list-style-type: none; padding: 0;">
+                </ul>
+        </div>
+
+        <div id="settings-area" class="settings-panel">
+            <h3>⚙️ إعدادات المباراة</h3>
+            <div id="settings-controls">
+                <div class="setting-item">
+                    <label for="rounds-count">عدد الجولات (1-10):</label>
+                    <input type="number" id="rounds-count" value="5" min="1" max="10">
+                </div>
+                <div class="setting-item">
+                    <label for="round-time">مدة الجولة بالثواني (30-180):</label>
+                    <input type="number" id="round-time" value="90" min="30" max="180">
+                </div>
+                <button class="main-play-button" onclick="sendSettings()">حفظ الإعدادات</button>
+            </div>
+            <p id="settings-message" style="margin-top: 10px;"></p>
+        </div>
+
+        <button class="main-play-button" style="margin-top: 30px;" onclick="startGame()">
+            بدء اللعب
+        </button>
+    </div>
+
+    <script>
+        // دالة قراءة الـ URL (كما في game.html)
+        function getUrlParameter(name) {
+            name = name.replace(/[\[]/, '\\[').replace(/[\]]/, '\\]');
+            var regex = new RegExp('[\\?&]' + name + '=([^&#]*)');
+            var results = regex.exec(location.search);
+            return results === null ? '' : decodeURIComponent(results[1].replace(/\+/g, ' '));
+        }
+
+        const ROOM_CODE = getUrlParameter('roomCode');
+        const playerName = localStorage.getItem('gameUsername') || 'لاعب مجهول';
+        
+        if (!ROOM_CODE) {
+            alert('خطأ: لم يتم تحديد الغرفة.');
+            window.location.href = 'lobby.html';
+        }
+        
+        document.getElementById('room-code-display').textContent = ROOM_CODE;
+        const socket = io();
+
+        socket.on('connect', () => {
+            // إرسال طلب للانضمام إلى الغرفة وتحديد الهوية كلاعب
+            socket.emit('identify_player', { roomCode: ROOM_CODE, playerName: playerName });
+        });
+
+        // -----------------------------------------------------
+        // 2. منطق إدارة الإعدادات (يحتاج إلى دعم من server.js)
+        // -----------------------------------------------------
+
+        let isRoomCreator = false; // هل هذا اللاعب هو منشئ الغرفة؟
+
+        // استقبال معلومات الغرفة من الخادم
+        socket.on('room_info', (data) => {
+            updatePlayerList(data.players);
+
+            // إظهار الإعدادات لمنشئ الغرفة فقط
+            if (data.creatorId === socket.id) {
+                isRoomCreator = true;
+                document.getElementById('settings-area').style.display = 'block';
+                // تحديث القيم الحالية للإعدادات
+                document.getElementById('rounds-count').value = data.settings.rounds;
+                document.getElementById('round-time').value = data.settings.time;
+            } else {
+                // إخفاء عناصر التحكم عن اللاعبين الآخرين
+                document.getElementById('settings-controls').style.display = 'none';
+                document.getElementById('settings-message').textContent = 
+                    `الانتظار لإعدادات المنشئ. الوقت: ${data.settings.time} ثانية، الجولات: ${data.settings.rounds}.`;
+            }
+        });
+
+        function updatePlayerList(players) {
+            const list = document.getElementById('player-list');
+            list.innerHTML = '';
+            players.forEach(p => {
+                const item = document.createElement('li');
+                item.textContent = p.name + (p.id === socket.id ? " (أنت)" : "");
+                if (p.isCreator) {
+                     item.textContent += " (المنشئ)";
+                     item.style.fontWeight = 'bold';
+                }
+                list.appendChild(item);
+            });
+        }
+
+        function sendSettings() {
+            if (!isRoomCreator) return;
+
+            const rounds = parseInt(document.getElementById('rounds-count').value);
+            const time = parseInt(document.getElementById('round-time').value);
+
+            // التحقق من القيود (30 ثانية إلى 180 ثانية، 1 إلى 10 جولات)
+            if (rounds < 1 || rounds > 10 || time < 30 || time > 180) {
+                alert("الرجاء تحديد قيم صحيحة للإعدادات.");
+                return;
+            }
+            
+            // إرسال الإعدادات الجديدة إلى الخادم
+            socket.emit('update_settings', { roomCode: ROOM_CODE, rounds: rounds, time: time });
+            document.getElementById('settings-message').textContent = "تم حفظ الإعدادات بنجاح.";
+        }
+
+        function startGame() {
+            if (!isRoomCreator) {
+                 alert("فقط منشئ الغرفة يمكنه بدء اللعب.");
+                 return;
+            }
+            // إرسال أمر بدء اللعب إلى الخادم
+            socket.emit('start_game', { roomCode: ROOM_CODE });
+        }
+
+        // الاستماع لأمر بدء اللعب من الخادم
+        socket.on('game_started', (data) => {
+            // التوجيه إلى صفحة اللعب عند وصول أمر البدء من الخادم
+            window.location.href = `game.html?roomCode=${data.roomCode}`;
+        });
+        
+        // ... (بقية الـ listeners)
+    </script>
+</body>
+</html>

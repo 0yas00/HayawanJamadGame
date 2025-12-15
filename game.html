@@ -7,7 +7,7 @@
     <link rel="stylesheet" href="style.css">
     <script src="/socket.io/socket.io.js"></script>
     <style>
-        /* التنسيقات الخاصة بشاشة اللعب (مكررة من الرد السابق لضمان الاكتمال) */
+        /* التنسيقات (تم تضمينها كما هي لضمان عدم وجود أخطاء CSS) */
         .game-header {
             display: flex;
             justify-content: space-between;
@@ -138,60 +138,26 @@
         }
         
         let timerInterval;
-        let timeRemaining = 60;
+        let timeRemaining = 60; // القيمة الأولية (سيتم تحديثها من الخادم)
         let gameRunning = true;
-        let currentLetter = ''; // الحرف يبدأ مجهولاً
+        let currentLetter = ''; 
         
         const playerName = localStorage.getItem('gameUsername') || 'لاعب مجهول';
         
         const socket = io();
 
-        socket.on('connect', () => {
-            console.log(`متصل بالخادم في الغرفة: ${ROOM_CODE}`);
-            // طلب الحرف فور الاتصال
-            requestGameLetter(); 
-        });
+        // ----------------- الدوال المساعدة ------------------
 
-        // ----------------- الدوال الجديدة ------------------
-
-        // دالة طلب الحرف من الخادم عند بدء اللعب
-        function requestGameLetter() {
-            socket.emit('get_room_letter', ROOM_CODE);
-            document.getElementById('current-letter').textContent = '?';
+        // دالة لتعطيل / تفعيل جميع حقول الإدخال
+        function toggleInputs(disabled) {
+            document.querySelectorAll('.answer-grid input').forEach(input => {
+                input.disabled = disabled;
+            });
         }
-
-        // الاستماع لرد الخادم بالحرف
-        socket.on('room_letter', (data) => {
-            if (data.currentLetter) {
-                // تحديث الحرف المعروض وبدء اللعب
-                updateLetterDisplay(data.currentLetter); 
-                currentLetter = data.currentLetter;
-            }
-        });
-        
-        // ----------------- Socket Listeners ------------------
-
-        socket.on('time_stopped', (data) => {
-            if (gameRunning) {
-                clearInterval(timerInterval); 
-                gameRunning = false;
-                document.getElementById('stop-btn').disabled = true;
-                displaySystemMessage(data.message, '#5cb85c');
-            }
-        });
-        
-        socket.on('stop_failed', (data) => {
-            displaySystemMessage(data.message, '#f0ad4e');
-            gameRunning = true;
-            document.getElementById('stop-btn').disabled = false;
-            startTimer(); 
-        });
-
-        // ----------------- الدوال الأساسية ------------------
 
         function displaySystemMessage(message, color) {
             const sysMsg = document.getElementById('system-message');
-            sysMsg.textContent = message;
+            sysMsg.innerHTML = message; // استخدام innerHTML للسماح بالـ bold و emoji
             sysMsg.style.backgroundColor = color;
             sysMsg.style.display = 'block';
             setTimeout(() => {
@@ -206,7 +172,7 @@
                 input.placeholder = `أدخل ${category} بحرف ${letter}`;
             });
         }
-
+        
         function updateTimerDisplay() {
             const minutes = Math.floor(timeRemaining / 60);
             const seconds = timeRemaining % 60;
@@ -215,6 +181,9 @@
         }
 
         function startTimer() {
+            // مسح أي مؤقت سابق للتأكد من عدم وجود تضارب
+            clearInterval(timerInterval); 
+            
             timerInterval = setInterval(() => {
                 if (timeRemaining > 0 && gameRunning) {
                     timeRemaining--;
@@ -222,6 +191,7 @@
                 } else if (timeRemaining <= 0) {
                     clearInterval(timerInterval);
                     gameRunning = false;
+                    toggleInputs(true); // تعطيل الحقول
                     document.getElementById('stop-btn').disabled = true;
                     displaySystemMessage("انتهى الوقت! سيتم مراجعة إجاباتك.", '#dc3545'); 
                 }
@@ -238,14 +208,74 @@
             return answers;
         }
 
-        function handleStopGame() {
-            if (!gameRunning || !currentLetter) return; // منع التوقف إذا لم يظهر الحرف بعد
+        // ----------------- Socket Listeners ------------------
+        
+        socket.on('connect', () => {
+            console.log(`متصل بالخادم في الغرفة: ${ROOM_CODE}`);
+            // طلب الحرف (الذي سيرسل الحرف ووقت الجولة المحدد)
+            requestGameLetter(); 
+        });
 
+        // دالة طلب الحرف من الخادم عند بدء اللعب
+        function requestGameLetter() {
+            socket.emit('get_room_letter', ROOM_CODE);
+            document.getElementById('current-letter').textContent = '?';
+            toggleInputs(true); // تعطيل الحقول حتى يأتي الحرف والوقت
+        }
+
+        // الاستماع لرد الخادم بالحرف والوقت
+        socket.on('room_letter', (data) => {
+            if (data.currentLetter) {
+                // 1. تحديث الحرف
+                updateLetterDisplay(data.currentLetter); 
+                currentLetter = data.currentLetter;
+                
+                // 2. تحديث وقت الجولة وبدء المؤقت
+                timeRemaining = data.roundTime; // استخدام الوقت المحدد من صفحة الإعدادات
+                updateTimerDisplay(); 
+                startTimer();
+                
+                // 3. تفعيل الحقول وبدء اللعب
+                toggleInputs(false); 
+            }
+        });
+        
+        // الإيقاف المتزامن للجميع (بما فيهم اللاعب الذي ضغط على توقف)
+        socket.on('time_stopped', (data) => {
+            if (gameRunning) {
+                clearInterval(timerInterval); 
+                gameRunning = false;
+                
+                // تعطيل الحقول والزر للجميع
+                toggleInputs(true); 
+                document.getElementById('stop-btn').disabled = true;
+                
+                // إعلان الفائز بالجولة
+                const announcement = `🎉 الفائز بالجولة: **${data.stopper}**!`;
+                displaySystemMessage(announcement, '#00bfa5'); 
+            }
+        });
+        
+        socket.on('stop_failed', (data) => {
+            // هذه الرسالة تذهب فقط للاعب الذي أوقف اللعب وفشلت إجابته
+            displaySystemMessage(data.message, '#f0ad4e');
+            gameRunning = true;
+            document.getElementById('stop-btn').disabled = false;
+            startTimer(); // استكمال المؤقت لهذا اللاعب
+        });
+
+        // ----------------- وظيفة معالجة زر "توقف" ------------------
+
+        function handleStopGame() {
+            if (!gameRunning || !currentLetter) return;
+
+            // إيقاف المؤقت محلياً (مؤقتاً) وتعطيل الزر لمنع الضغط المزدوج
             clearInterval(timerInterval);
             document.getElementById('stop-btn').disabled = true; 
 
             const answers = getPlayerAnswers();
 
+            // إرسال طلب الإيقاف والتحقق للذكاء الاصطناعي
             socket.emit('stop_game_request', { 
                 roomCode: ROOM_CODE, 
                 playerName: playerName,
@@ -256,10 +286,10 @@
             displaySystemMessage("طلبك قيد التحقق الفوري بواسطة الذكاء الاصطناعي...", '#007bff');
         }
 
-        // بدء اللعب عند تحميل الصفحة
+        // بدء اللعب عند تحميل الصفحة (يتم بدء المؤقت فقط بعد استلام الحرف والوقت من الخادم)
         window.onload = function() {
-            updateTimerDisplay(); 
-            startTimer(); 
+            // يتم استدعاء requestGameLetter عند الاتصال بـ Socket.io لبدء عملية اللعب
+            updateTimerDisplay(); // لعرض الوقت الأولي (01:00) مؤقتاً
         };
     </script>
 </body>
