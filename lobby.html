@@ -1,0 +1,136 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>اللوبي - حيوان جماد نبات</title>
+    <link rel="stylesheet" href="style.css">
+    <script src="/socket.io/socket.io.js"></script>
+</head>
+<body>
+    <div class="lobby-container" style="width: 500px;">
+        <div class="welcome-message" id="welcome-msg">
+            مرحباً بك، **(اسم اللاعب)**!
+        </div>
+
+        <button class="main-play-button" id="play-btn">
+            العب
+        </button>
+
+        <div class="game-options" id="options-panel" style="display: none;">
+            <h3 id="connection-status" style="color:#2ecc71;">✅ متصل بالخادم</h3>
+
+            <h4 style="margin-top: 15px;">مجموعة خاصة</h4>
+            <button class="option-button" onclick="showPrivateOptions()">
+                انضمام أو إنشاء مجموعة خاصة
+            </button>
+            
+            <div id="private-options-content">
+                <div id="private-options" style="display: none; padding: 10px 0;">
+                    <button class="option-button" id="create-btn" onclick="createPrivateRoom()">إنشاء مجموعة</button>
+                    <div style="margin-top: 10px; display: flex; justify-content: space-between;">
+                        <input type="text" id="room-code-input" placeholder="أدخل رمز المجموعة هنا" style="width: 68%; text-align: right;">
+                        <button class="option-button join" id="join-btn" style="width: 30%;" onclick="joinPrivateRoom()">انضمام</button>
+                    </div>
+                </div>
+            </div>
+            
+            <h4 style="margin-top: 20px;">مجموعات عامة</h4>
+            <button class="option-button join" onclick="browsePublicGroups()">
+                تصفح المجموعات العامة
+            </button>
+        </div>
+    </div>
+
+    <script>
+        const socket = io();
+        const playerName = localStorage.getItem('gameUsername') || 'لاعب جديد';
+        document.getElementById('welcome-msg').innerHTML = `مرحباً بك، **${playerName}**!`;
+
+        // ----------------- دوال الواجهة ------------------
+        document.getElementById('play-btn').addEventListener('click', function() {
+            const optionsPanel = document.getElementById('options-panel');
+            optionsPanel.style.display = 'block';
+            this.style.display = 'none'; 
+        });
+
+        function showPrivateOptions() {
+            const privateOptions = document.getElementById('private-options');
+            if (document.getElementById('private-options-content').innerHTML.includes('إنشاء مجموعة')) {
+                privateOptions.style.display = privateOptions.style.display === 'none' ? 'flex' : 'none';
+                privateOptions.style.flexDirection = 'column';
+            }
+        }
+        
+        function browsePublicGroups() {
+            alert("جارٍ تصفح المجموعات العامة... (توجيه للاختبار)");
+            window.location.href = 'game.html'; 
+        }
+
+        // ----------------- منطق الخادم ------------------
+
+        function createPrivateRoom() {
+            document.getElementById('private-options-content').innerHTML = 
+                `<h3 style="text-align: center; color: #3498db;">جارٍ إنشاء الغرفة...</h3>`;
+            
+            socket.emit('create_room_request');
+        }
+
+        function joinPrivateRoom() {
+            const code = document.getElementById('room-code-input').value.trim();
+            if (code && code.length === 6) {
+                // نرسل رمز الغرفة واسم اللاعب للانضمام
+                socket.emit('join_room_request', { roomCode: code, playerName: playerName });
+            } else {
+                alert("الرجاء إدخال رمز مكون من 6 أرقام.");
+            }
+        }
+        
+        function startGame(roomCode) {
+            // نحفظ الرمز فقط، والحرف يبقى مجهولاً
+            localStorage.setItem('currentRoomCode', roomCode);
+            localStorage.removeItem('initialGameLetter'); 
+            window.location.href = 'game.html';
+        }
+
+        // ----------------- Socket Listeners ------------------
+        
+        // عند استقبال الرمز من الخادم (بعد إنشاء الغرفة)
+        socket.on('room_created', (data) => {
+            const contentDiv = document.getElementById('private-options-content');
+            contentDiv.innerHTML = `
+                <h3 style="text-align: center; color: #2ecc71;">تم إنشاء الغرفة بنجاح!</h3>
+                <p style="text-align: center;">شارك هذا الرمز مع أصدقائك:</p>
+                <h2 style="color: #e74c3c; text-align: center;">${data.roomCode}</h2>
+                <h3 style="text-align: center; color: #f39c12;">الحرف سري وسيعلن عند بدء اللعب!</h3> <button class="option-button main-play-button" style="width: 100%; margin-top: 20px;" 
+                    onclick="startGame('${data.roomCode}')">
+                    بدء اللعب
+                </button>
+            `;
+        });
+        
+        // عند الانضمام بنجاح إلى غرفة موجودة
+        socket.on('room_joined', (data) => {
+             alert(`انضممت بنجاح إلى الغرفة ${data.roomCode}. الحرف سري.`);
+             startGame(data.roomCode);
+        });
+
+        // عند حدوث خطأ 
+        socket.on('room_error', (data) => {
+             alert(data.message);
+             // إعادة عرض خيارات الإنشاء والانضمام
+             const contentDiv = document.getElementById('private-options-content');
+             contentDiv.innerHTML = `<div id="private-options" style="padding: 10px 0;">
+                <button class="option-button" id="create-btn" onclick="createPrivateRoom()">إنشاء مجموعة</button>
+                <div style="margin-top: 10px; display: flex; justify-content: space-between;">
+                    <input type="text" id="room-code-input" placeholder="أدخل رمز المجموعة هنا" style="width: 68%; text-align: right;">
+                    <button class="option-button join" id="join-btn" style="width: 30%;" onclick="joinPrivateRoom()">انضمام</button>
+                </div>
+             </div>`;
+             document.getElementById('private-options').style.display = 'flex';
+             document.getElementById('private-options').style.flexDirection = 'column';
+        });
+
+    </script>
+</body>
+</html>

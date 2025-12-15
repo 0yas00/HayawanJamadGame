@@ -1,0 +1,256 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>اللعب - حيوان جماد نبات</title>
+    <link rel="stylesheet" href="style.css">
+    <script src="/socket.io/socket.io.js"></script>
+    <style>
+        /* التنسيقات الخاصة بشاشة اللعب (مكررة من الرد السابق لضمان الاكتمال) */
+        .game-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 20px;
+            padding: 10px 0;
+            border-bottom: 2px solid #ddd;
+        }
+
+        #timer {
+            font-size: 40px;
+            font-weight: bold;
+            color: #e74c3c;
+            border: 3px solid #e74c3c;
+            padding: 10px 20px;
+            border-radius: 10px;
+            background-color: #ffeaea;
+        }
+
+        .challenge-letter {
+            font-size: 50px;
+            color: #2c3e50;
+            font-weight: 900;
+        }
+
+        .answer-grid {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 20px;
+            margin-bottom: 30px;
+        }
+
+        .answer-box {
+            background-color: #ecf0f1;
+            padding: 15px;
+            border-radius: 8px;
+        }
+
+        .answer-box label {
+            display: block;
+            font-weight: bold;
+            margin-bottom: 8px;
+            color: #2980b9;
+            font-size: 18px;
+        }
+
+        .answer-box input {
+            width: 100%;
+            padding: 10px;
+            border: 1px solid #bdc3c7;
+            border-radius: 5px;
+            box-sizing: border-box;
+            text-align: right;
+        }
+
+        #stop-btn {
+            background-color: #f39c12;
+            color: white;
+            border: none;
+            padding: 15px 30px;
+            border-radius: 8px;
+            cursor: pointer;
+            font-size: 22px;
+            transition: background-color 0.3s ease;
+            width: 100%;
+        }
+        #stop-btn:hover:not(:disabled) {
+            background-color: #e67e22;
+        }
+        #stop-btn:disabled {
+            background-color: #cccccc;
+            cursor: not-allowed;
+        }
+        /* لتظهر رسائل النظام بوضوح */
+        #system-message {
+            margin-top: 20px;
+            padding: 10px;
+            background-color: #f0ad4e;
+            color: white;
+            border-radius: 5px;
+            display: none;
+            text-align: center;
+        }
+    </style>
+</head>
+<body>
+    <div class="lobby-container">
+        
+        <div id="system-message"></div>
+
+        <div class="game-header">
+            <div>
+                <div style="font-size: 20px; color: #7f8c8d;">الحرف المخصص:</div>
+                <div class="challenge-letter" id="current-letter"></div> 
+            </div>
+            <div id="timer">01:00</div>
+        </div>
+
+        <div class="answer-grid">
+            <div class="answer-box"><label for="حيوان">حيوان:</label><input type="text" id="حيوان" data-category="حيوان" placeholder="أدخل حيوان"></div>
+            <div class="answer-box"><label for="جماد">جماد:</label><input type="text" id="جماد" data-category="جماد" placeholder="أدخل جماد"></div>
+            <div class="answer-box"><label for="نبات">نبات:</label><input type="text" id="نبات" data-category="نبات" placeholder="أدخل نبات"></div>
+            <div class="answer-box"><label for="بلاد">بلاد:</label><input type="text" id="بلاد" data-category="بلاد" placeholder="أدخل بلاد"></div>
+            <div class="answer-box" style="grid-column: span 2; max-width: 50%; margin: 0 auto;"><label for="اسم">اسم (شخص):</label><input type="text" id="اسم" data-category="اسم" placeholder="أدخل اسم"></div>
+        </div>
+
+        <button id="stop-btn" onclick="handleStopGame()">توقف</button>
+    </div>
+
+    <script>
+        // جلب رمز الغرفة والحرف من localStorage
+        const ROOM_CODE = localStorage.getItem('currentRoomCode');
+        let currentLetter = localStorage.getItem('initialGameLetter');
+        
+        // إذا لم يكن هناك رمز غرفة، نعيد اللاعب إلى اللوبي
+        if (!ROOM_CODE || !currentLetter) {
+            alert('خطأ: لم يتم تحديد الغرفة والحرف. يرجى البدء من اللوبي.');
+            window.location.href = 'lobby.html';
+        }
+
+        let timerInterval;
+        let timeRemaining = 60; // دقيقة واحدة
+        let gameRunning = true;
+        
+        const playerName = localStorage.getItem('gameUsername') || 'لاعب مجهول';
+        
+        // 1. الاتصال بـ Socket.IO والخادم
+        const socket = io();
+
+        socket.on('connect', () => {
+            console.log(`متصل بالخادم عبر Socket.IO في الغرفة: ${ROOM_CODE}`);
+        });
+
+        // 2. استقبال رسالة الإيقاف الناجح من الخادم
+        socket.on('time_stopped', (data) => {
+            if (gameRunning) {
+                clearInterval(timerInterval); // إيقاف المؤقت فوراً
+                gameRunning = false;
+                document.getElementById('stop-btn').disabled = true;
+                
+                // عرض رسالة نظام
+                displaySystemMessage(data.message, '#5cb85c'); // لون أخضر للنجاح
+                
+                // **الخطوة التالية:** توجيه إلى صفحة النتائج (results.html)
+                // مثال: setTimeout(() => { window.location.href = 'results.html'; }, 3000);
+            }
+        });
+        
+        // 3. استقبال رسالة فشل الإيقاف من الخادم (بسبب إجابات خاطئة)
+        socket.on('stop_failed', (data) => {
+            // اللاعب الذي أوقف هو الوحيد الذي يتلقى هذه الرسالة
+            displaySystemMessage(data.message, '#f0ad4e'); // لون برتقالي للفشل
+            
+            // إعادة تشغيل المؤقت وإتاحة الزر مرة أخرى
+            gameRunning = true;
+            document.getElementById('stop-btn').disabled = false;
+            startTimer(); // استكمال العد التنازلي
+        });
+
+        // 4. دالة عرض رسائل النظام
+        function displaySystemMessage(message, color) {
+            const sysMsg = document.getElementById('system-message');
+            sysMsg.textContent = message;
+            sysMsg.style.backgroundColor = color;
+            sysMsg.style.display = 'block';
+            setTimeout(() => {
+                sysMsg.style.display = 'none';
+            }, 5000); // إخفاء الرسالة بعد 5 ثوان
+        }
+
+        // 5. وظيفة تحديث المؤقت
+        function updateTimerDisplay() {
+            const minutes = Math.floor(timeRemaining / 60);
+            const seconds = timeRemaining % 60;
+            document.getElementById('timer').textContent = 
+                `${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
+        }
+
+        // 6. وظيفة بدء المؤقت
+        function startTimer() {
+            timerInterval = setInterval(() => {
+                if (timeRemaining > 0 && gameRunning) {
+                    timeRemaining--;
+                    updateTimerDisplay();
+                } else if (timeRemaining <= 0) {
+                    clearInterval(timerInterval);
+                    gameRunning = false;
+                    document.getElementById('stop-btn').disabled = true;
+                    displaySystemMessage("انتهى الوقت! سيتم مراجعة إجاباتك.", '#dc3545'); // لون أحمر
+                    // هنا يتم إرسال طلب مراجعة نهائية للإجابات
+                }
+            }, 1000); 
+        }
+
+        // 7. وظيفة تحديث وعرض الحرف على الشاشة
+        function updateLetterDisplay(letter) {
+            document.getElementById('current-letter').textContent = letter;
+            // تحديث placeholder بناءً على الحرف الجديد
+            document.querySelectorAll('.answer-box input').forEach(input => {
+                const category = input.getAttribute('data-category');
+                input.placeholder = `أدخل ${category} بحرف ${letter}`;
+            });
+        }
+
+        // 8. وظيفة جمع إجابات اللاعب
+        function getPlayerAnswers() {
+            const categories = ['اسم', 'حيوان', 'نبات', 'جماد', 'بلاد'];
+            const answers = {};
+            categories.forEach(cat => {
+                const inputElement = document.getElementById(cat);
+                answers[cat] = inputElement ? inputElement.value.trim() : '';
+            });
+            return answers;
+        }
+
+        // 9. وظيفة معالجة ضغط زر "توقف"
+        function handleStopGame() {
+            if (!gameRunning) return;
+
+            // إيقاف المؤقت محلياً قبل إرسال الطلب
+            clearInterval(timerInterval);
+            document.getElementById('stop-btn').disabled = true; 
+
+            const answers = getPlayerAnswers();
+            const currentLetter = document.getElementById('current-letter').textContent.trim(); // قراءة الحرف المعروض
+
+            // إرسال رسالة الإيقاف إلى الخادم مع البيانات (للتحقق بالذكاء الاصطناعي)
+            socket.emit('stop_game_request', { 
+                roomCode: ROOM_CODE, 
+                playerName: playerName,
+                answers: answers, 
+                currentLetter: currentLetter 
+            });
+
+            displaySystemMessage("طلبك قيد التحقق الفوري بواسطة الذكاء الاصطناعي...", '#007bff');
+        }
+
+        // بدء اللعب عند تحميل الصفحة
+        window.onload = function() {
+            updateLetterDisplay(currentLetter); // تحديث الحرف عند بدء اللعب
+            updateTimerDisplay(); 
+            startTimer(); 
+        };
+    </script>
+</body>
+</html>
