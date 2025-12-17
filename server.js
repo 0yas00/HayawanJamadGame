@@ -74,21 +74,31 @@ app.use(express.static(path.join(__dirname)));
 io.on('connection', (socket) => {
     console.log(`👤 لاعب متصل: ${socket.id}`);
 
-    // --- تسجيل الدخول (جوجل) ---
+  // --- 1. تسجيل الدخول (جوجل) ---
     socket.on('google_login', async (data) => {
         const payload = await verifyGoogleToken(data.token);
         if (!payload) return socket.emit('auth_error', { message: 'رمز غير صالح' });
         try {
             let user = await User.findOne({ googleId: payload.sub });
             if (!user) {
-                user = new User({ googleId: payload.sub, username: payload.name });
+                // ننشئ الحساب بـ username يساوي null ليتم طلبه لاحقاً في اللوبي
+                user = new User({ 
+                    googleId: payload.sub, 
+                    email: payload.email, 
+                    username: null 
+                });
                 await user.save();
             }
-            socket.emit('auth_success', { username: user.username, wins: user.wins });
+            // إرسال الـ email والـ username (الذي قد يكون null للمستخدم الجديد)
+            socket.emit('auth_success', { 
+                username: user.username, 
+                wins: user.wins, 
+                email: user.email 
+            });
         } catch (error) { socket.emit('auth_error', { message: 'خطأ قاعدة بيانات' }); }
     });
 
-    // --- إنشاء حساب يدوي ---
+    // --- 2. إنشاء حساب يدوي ---
     socket.on('register_request', async (data) => {
         try {
             const { email, password, username } = data;
@@ -97,19 +107,50 @@ io.on('connection', (socket) => {
             const hashedPassword = await bcrypt.hash(password, 10);
             const newUser = new User({ email, password: hashedPassword, username });
             await newUser.save();
-            socket.emit('auth_success', { username: newUser.username, wins: 0 });
+            // نرسل البيانات بنجاح مع البريد الإلكتروني
+            socket.emit('auth_success', { 
+                username: newUser.username, 
+                wins: 0, 
+                email: newUser.email 
+            });
         } catch (error) { socket.emit('auth_error', { message: 'فشل الإنشاء' }); }
     });
 
-    // --- تسجيل دخول يدوي ---
+    // --- 3. تسجيل دخول يدوي ---
     socket.on('login_request', async (data) => {
         try {
             const user = await User.findOne({ email: data.email });
             if (!user || !user.password) return socket.emit('auth_error', { message: 'بيانات خاطئة' });
             const isMatch = await bcrypt.compare(data.password, user.password);
             if (!isMatch) return socket.emit('auth_error', { message: 'كلمة سر خطأ' });
-            socket.emit('auth_success', { username: user.username, wins: user.wins });
+            
+            socket.emit('auth_success', { 
+                username: user.username, 
+                wins: user.wins, 
+                email: user.email 
+            });
         } catch (error) { socket.emit('auth_error', { message: 'فشل الدخول' }); }
+    });
+
+    // --- 4. تحديث اسم الشهرة لأول مرة (يضاف هذا الجزء الجديد هنا) ---
+    socket.on('update_initial_username', async (data) => {
+        try {
+            const { email, newUsername } = data;
+            // فحص إذا كان الاسم مأخوذاً من قبل مستخدم آخر
+            const existingName = await User.findOne({ username: newUsername });
+            if (existingName) return socket.emit('auth_error', { message: 'هذا الاسم مأخوذ بالفعل، اختر غيره' });
+
+            const updatedUser = await User.findOneAndUpdate(
+                { email: email },
+                { username: newUsername },
+                { new: true }
+            );
+            if (updatedUser) {
+                socket.emit('username_updated', { username: updatedUser.username });
+            }
+        } catch (error) { 
+            socket.emit('auth_error', { message: 'حدث خطأ أثناء حفظ الاسم' }); 
+        }
     });
 
     // --- إنشاء غرفة ---

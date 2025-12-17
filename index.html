@@ -17,6 +17,28 @@
     </style>
 </head>
 <body>
+<div id="player-header" style="display:none; background:#2c3e50; color:white; padding:10px 20px; display:flex; justify-content:space-between; align-items:center; border-bottom:3px solid #34495e;">
+    <div>
+        <span style="color:#bdc3c7;">اللاعب:</span>
+        <span id="display-player-name" style="font-weight:bold; color:#f1c40f; font-size:1.1em;"></span>
+    </div>
+    <button onclick="logout()" style="background:#e74c3c; color:white; border:none; padding:5px 15px; border-radius:5px; cursor:pointer;">تسجيل خروج</button>
+</div>
+
+<div id="username-modal" style="display:none; position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.9); z-index:10000; display:flex; align-items:center; justify-content:center;">
+    <div style="background:#fff; padding:30px; border-radius:15px; width:350px; text-align:center; box-shadow:0 10px 25px rgba(0,0,0,0.5);">
+        <h2 style="color:#2c3e50; margin-top:0;">مرحباً بك! 👋</h2>
+        <p style="color:#7f8c8d;">يرجى اختيار اسم الشهرة الذي سيظهر للاعبين الآخرين في الغرفة:</p>
+        <input type="text" id="new-username-input" placeholder="اكتب اسمك هنا..." 
+               style="width:100%; padding:12px; margin:15px 0; border:2px solid #ddd; border-radius:8px; font-size:16px; box-sizing:border-box;">
+        <button onclick="saveInitialUsername()" 
+                style="width:100%; padding:12px; background:#27ae60; color:white; border:none; border-radius:8px; font-size:18px; font-weight:bold; cursor:pointer;">
+            حفظ واستمرار
+        </button>
+        <p id="username-error-msg" style="color:#e74c3c; margin-top:10px; font-size:14px;"></p>
+    </div>
+</div>
+
     <div class="lobby-container" style="width: 500px;">
         <div id="auth-section">
             <h2 id="auth-title">تسجيل الدخول</h2>
