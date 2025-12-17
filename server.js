@@ -155,6 +155,29 @@ io.on('connection', (socket) => {
         } catch (error) {
             socket.emit('auth_error', { message: 'خطأ في قاعدة البيانات.' });
         }
+         // حدث طرد لاعب من قبل المنشئ
+    socket.on('kick_player', (data) => {
+        const { roomCode, targetId } = data;
+        const room = activeRooms[roomCode];
+
+        // التأكد أن الذي يطلب الطرد هو منشئ الغرفة
+        if (room && room.creatorId === socket.id) {
+            // إرسال تنبيه للاعب المطرود ليتم تحويله لصفحة البداية
+            io.to(targetId).emit('you_are_kicked');
+
+            // حذف اللاعب من مصفوفة الغرفة
+            room.players = room.players.filter(p => p.id !== targetId);
+
+            // تحديث باقي اللاعبين في الغرفة بالقائمة الجديدة
+            io.to(roomCode).emit('room_info', {
+                players: room.players,
+                creatorId: room.creatorId,
+                settings: room.settings
+            });
+
+            console.log(`🚫 تم طرد لاعب من الغرفة ${roomCode}`);
+        }
+    });
     });
 
     // --- 8.2 إنشاء حساب جديد (إضافة جديدة) ---
@@ -189,19 +212,21 @@ io.on('connection', (socket) => {
         }
     });
 
-    // --- 8.4 تحديث الانتصارات (إضافة جديدة) ---
-    socket.on('update_winner_score', async (data) => {
-        try {
-            const user = await User.findOneAndUpdate(
-                { username: data.playerName },
-                { $inc: { wins: 1 } },
-                { new: true }
-            );
-            if(user) console.log(`🏆 تحديث الانتصارات لـ ${data.playerName}: ${user.wins}`);
-        } catch (error) {
-            console.error("فشل تحديث النتيجة.");
-        }
-    });
+    // حدث تحديث عدد الانتصارات عند فوز لاعب
+socket.on('update_winner_score', async (data) => {
+    const { playerName } = data;
+    try {
+        // زيادة عدد الانتصارات (wins) بمقدار 1 في قاعدة البيانات
+        const updatedUser = await User.findOneAndUpdate(
+            { username: playerName },
+            { $inc: { wins: 1 } },
+            { new: true }
+        );
+        console.log(`✅ تم تحديث انتصارات اللاعب ${playerName}: ${updatedUser.wins}`);
+    } catch (error) {
+        console.error("❌ خطأ في تحديث سجل الفوز:", error);
+    }
+});
 
     // --- 1. طلب إنشاء غرفة خاصة (كما هو) ---
     socket.on('create_room_request', (data) => {
@@ -243,23 +268,34 @@ io.on('connection', (socket) => {
     });
 
     // --- 3. تحديد الهوية (كما هو) ---
-    socket.on('identify_player', (data) => {
-        const { roomCode, playerName } = data;
-        const room = activeRooms[roomCode];
-        if (room) {
-            let player = room.players.find(p => p.id === socket.id);
-            if (!player) {
-                 player = { id: socket.id, name: playerName, isCreator: false, score: 0 };
-                 room.players.push(player);
-            }
-            player.name = playerName;
-            io.to(roomCode).emit('room_info', {
-                players: room.players,
-                creatorId: room.creatorId,
-                settings: room.settings
-            });
+   socket.on('identify_player', async (data) => {
+    const { roomCode, playerName } = data;
+    const room = activeRooms[roomCode];
+
+    if (room) {
+        // جلب بيانات اللاعب من قاعدة البيانات لمعرفة عدد انتصاراته
+        const userDb = await User.findOne({ username: playerName });
+        const userWins = userDb ? userDb.wins : 0;
+
+        let player = room.players.find(p => p.id === socket.id);
+        if (!player) {
+            player = { 
+                id: socket.id, 
+                name: playerName, 
+                wins: userWins, // إضافة عدد الانتصارات هنا ليراها الآخرون
+                score: 0 
+            };
+            room.players.push(player);
         }
-    });
+
+        // إرسال التحديث للجميع
+        io.to(roomCode).emit('room_info', {
+            players: room.players,
+            creatorId: room.creatorId,
+            settings: room.settings
+        });
+    }
+});
 
     // --- 4. تحديث الإعدادات (كما هو) ---
     socket.on('update_settings', (data) => {
@@ -322,7 +358,80 @@ io.on('connection', (socket) => {
 
     socket.on('disconnect', () => { console.log(`لاعب فصل: ${socket.id}`); });
 });
+// حدث طرد لاعب من قبل المنشئ
+socket.on('kick_player', (data) => {
+    const { roomCode, targetId } = data;
+    const room = activeRooms[roomCode];
 
+    // التأكد من أن مرسل الطلب هو منشئ الغرفة فعلياً
+    if (room && room.creatorId === socket.id) {
+        // إخبار اللاعب المستهدف أنه تم طرده ليتم توجيهه لصفحة البداية
+        io.to(targetId).emit('you_are_kicked');
+
+        // البحث عن اسم اللاعب المطرود لإرسال رسالة تنبيه للبقية
+        const kickedPlayer = room.players.find(p => p.id === targetId);
+        const kickedName = kickedPlayer ? kickedPlayer.name : "لاعب";
+
+        // حذف اللاعب من مصفوفة الغرفة
+        room.players = room.players.filter(p => p.id !== targetId);
+
+        // تحديث القائمة عند الجميع في الغرفة
+        io.to(roomCode).emit('room_info', {
+            players: room.players,
+            creatorId: room.creatorId,
+            settings: room.settings
+        });
+
+        // إرسال رسالة نظام للغرفة تخبرهم بالطرد
+        io.to(roomCode).emit('system_message', { 
+            message: `🚫 تم طرد اللاعب ${kickedName} من قبل المنشئ.`,
+            color: '#e74c3c' 
+        });
+
+        console.log(`🚫 تم طرد لاعب من الغرفة ${roomCode}`);
+    }
+});
+io.on('connection', (socket) => {
+    console.log('لاعب جديد متصل:', socket.id);
+
+    // ... هنا توجد الأكواد الأخرى مثل identify_player و start_game ...
+
+    // ⬇️ أضف كود الـ Disconnect هنا ⬇️
+    socket.on('disconnect', () => {
+        for (const roomCode in activeRooms) {
+            const room = activeRooms[roomCode];
+            const playerIndex = room.players.findIndex(p => p.id === socket.id);
+
+            if (playerIndex !== -1) {
+                const playerName = room.players[playerIndex].name;
+                
+                // 1. حذف اللاعب من قائمة الغرفة
+                room.players.splice(playerIndex, 1);
+
+                // 2. إذا كان اللاعب الذي خرج هو المنشئ، اجعل اللاعب التالي هو المنشئ
+                if (socket.id === room.creatorId && room.players.length > 0) {
+                    room.creatorId = room.players[0].id;
+                }
+
+                // 3. إذا أصبحت الغرفة فارغة تماماً، احذف الغرفة من الذاكرة لتوفير المساحة
+                if (room.players.length === 0) {
+                    delete activeRooms[roomCode];
+                    console.log(`🗑️ تم حذف الغرفة الفارغة: ${roomCode}`);
+                } else {
+                    // 4. إرسال القائمة المحدثة لمن تبقى في الغرفة
+                    io.to(roomCode).emit('room_info', {
+                        players: room.players,
+                        creatorId: room.creatorId,
+                        settings: room.settings
+                    });
+                }
+
+                console.log(`🔌 اللاعب ${playerName} غادر الغرفة ${roomCode}`);
+                break; // نخرج من الحلقة لأن اللاعب غادر غرفة واحدة فقط
+            }
+        }
+    });
+}); // نهاية قوس الـ connection
 server.listen(PORT, () => {
     console.log(`✅ الخادم يعمل على المنفذ: http://localhost:${PORT}`);
 });

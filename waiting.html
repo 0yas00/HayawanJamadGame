@@ -11,23 +11,50 @@
         .setting-item { margin-bottom: 15px; }
         .setting-item label { display: block; font-weight: bold; margin-bottom: 5px; }
         #player-list li { 
-            padding: 10px; 
-            border-bottom: 1px dotted #ccc; 
+            padding: 12px; 
+            border-bottom: 1px solid #ddd; 
             display: flex; 
             justify-content: space-between; 
-            align-items: center; 
+            align-items: center;
+            background: #fff;
+            margin-bottom: 5px;
+            border-radius: 5px;
         }
         .win-badge { 
             background: #f1c40f; 
-            color: #fff; 
-            padding: 2px 8px; 
-            border-radius: 15px; 
-            font-size: 12px; 
+            color: #2c3e50; 
+            padding: 3px 10px; 
+            border-radius: 20px; 
+            font-size: 13px; 
             font-weight: bold; 
-            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            border: 1px solid #d4ac0d;
         }
+        .role-tag {
+            font-size: 11px;
+            font-weight: bold;
+            padding: 2px 6px;
+            border-radius: 4px;
+            margin-right: 8px;
+        }
+        .creator-tag { background-color: #ffeaa7; color: #e67e22; border: 1px solid #fab1a0; }
+        .member-tag { background-color: #dfe6e9; color: #636e72; border: 1px solid #b2bec3; }
+        
+        /* تصميم زر الطرد */
+        .kick-btn {
+            background-color: #ff7675;
+            color: white;
+            border: none;
+            padding: 4px 8px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 11px;
+            margin-left: 10px;
+            transition: 0.3s;
+        }
+        .kick-btn:hover { background-color: #d63031; }
+
         #settings-area { display: none; }
-        .lobby-container { width: 500px; max-width: 90%; margin: 20px auto; }
+        .lobby-container { width: 500px; max-width: 95%; margin: 20px auto; }
     </style>
 </head>
 <body>
@@ -35,9 +62,9 @@
         <h2>غرفة الانتظار: <span id="room-code-display" style="color:#e74c3c;"></span></h2>
         
         <div id="player-list-container">
-            <h3>اللاعبون المتواجدون:</h3>
+            <h3>👥 اللاعبون المتواجدون:</h3>
             <ul id="player-list" style="list-style-type: none; padding: 0;">
-                <li style="color: #7f8c8d;">جارٍ التحميل...</li>
+                <li style="color: #7f8c8d; text-align: center;">جارٍ تحديث قائمة اللاعبين...</li>
             </ul>
         </div>
 
@@ -52,15 +79,15 @@
                     <label for="round-time">مدة الجولة بالثواني (30-180):</label>
                     <input type="number" id="round-time" value="90" min="30" max="180" style="width: 100%; padding: 8px;">
                 </div>
-                <button class="option-button" onclick="sendSettings()">حفظ الإعدادات</button>
+                <button class="option-button" onclick="sendSettings()" style="width: 100%;">حفظ الإعدادات</button>
             </div>
-            <p id="settings-message" style="margin-top: 10px;"></p>
+            <p id="settings-message" style="margin-top: 10px; text-align: center; color: #27ae60;"></p>
         </div>
         
         <button class="main-play-button" style="margin-top: 30px;" id="start-btn" onclick="startGame()">
             بدء الجولة
         </button>
-        <p id="wait-message" style="text-align: center; color: #e67e22; margin-top: 15px;"></p>
+        <p id="wait-message" style="text-align: center; color: #e67e22; margin-top: 15px; font-weight: bold;"></p>
     </div>
 
     <script>
@@ -74,76 +101,93 @@
         const ROOM_CODE = getUrlParameter('roomCode');
         const playerName = localStorage.getItem('gameUsername') || 'لاعب مجهول';
         
-        if (!ROOM_CODE || ROOM_CODE.length !== 6) {
-            window.location.href = 'index.html';
-        }
-        
+        if (!ROOM_CODE) window.location.href = 'index.html';
         document.getElementById('room-code-display').textContent = ROOM_CODE;
         
-        const socket = io({ transports: ['websocket'], upgrade: false });
+        const socket = io({ transports: ['websocket'] });
 
-        let isRoomCreator = false;
-        
         socket.on('connect', () => {
             socket.emit('identify_player', { roomCode: ROOM_CODE, playerName: playerName });
         });
 
         socket.on('room_info', (data) => {
-            updatePlayerList(data.players, data.creatorId);
+            const list = document.getElementById('player-list');
+            list.innerHTML = ''; 
 
-            isRoomCreator = (data.creatorId === socket.id);
-            const startButton = document.getElementById('start-btn');
+            const currentIsCreator = (data.creatorId === socket.id);
+
+            data.players.forEach(p => {
+                const item = document.createElement('li');
+                const isCreator = (p.id === data.creatorId);
+                const isMe = (p.id === socket.id);
+                
+                const roleLabel = isCreator ? 'المنشئ 👑' : 'عضو 👤';
+                const roleClass = isCreator ? 'creator-tag' : 'member-tag';
+
+                // إضافة زر الطرد إذا كان المشاهد هو المنشئ والهدف ليس المنشئ نفسه
+                let kickHtml = "";
+                if (currentIsCreator && !isCreator) {
+                    kickHtml = `<button class="kick-btn" onclick="kickPlayer('${p.id}', '${p.name}')">طرد ❌</button>`;
+                }
+
+                item.innerHTML = `
+                    <div>
+                        <strong style="${isCreator ? 'color: #e67e22;' : 'color: #2c3e50;'}">${p.name}</strong>
+                        ${isMe ? '<span style="color: #27ae60; font-size: 11px;"> (أنت)</span>' : ''}
+                        <span class="role-tag ${roleClass}">${roleLabel}</span>
+                    </div>
+                    <div style="display: flex; align-items: center;">
+                        ${kickHtml}
+                        <span class="win-badge">🏆 فوز: ${p.wins || 0}</span>
+                    </div>
+                `;
+                list.appendChild(item);
+            });
+
+            const startBtn = document.getElementById('start-btn');
             const settingsArea = document.getElementById('settings-area');
-            const waitMessage = document.getElementById('wait-message');
+            const waitMsg = document.getElementById('wait-message');
 
-            if (isRoomCreator) {
+            if (currentIsCreator) {
                 settingsArea.style.display = 'block';
-                startButton.textContent = 'بدء الجولة الأولى';
-                waitMessage.textContent = 'أنت المنشئ. اضبط الإعدادات وابدأ اللعب.';
+                startBtn.disabled = false;
+                startBtn.style.opacity = "1";
+                startBtn.textContent = "بدء الجولة الأولى";
+                waitMsg.textContent = "أنت المنشئ. يمكنك تعديل الإعدادات أو طرد المتطفلين.";
                 document.getElementById('rounds-count').value = data.settings.rounds;
                 document.getElementById('round-time').value = data.settings.time;
             } else {
                 settingsArea.style.display = 'none';
-                startButton.textContent = 'الانتظار للمنشئ...';
-                startButton.disabled = true;
-                waitMessage.textContent = `الانتظار لبدء الجولة. الوقت: ${data.settings.time} ثانية، الجولات: ${data.settings.rounds}.`;
+                startBtn.disabled = true;
+                startBtn.style.opacity = "0.6";
+                startBtn.textContent = "في انتظار المنشئ...";
+                waitMsg.textContent = "بانتظار منشئ المجموعة لبدء المباراة.";
             }
         });
 
-        // --- تحديث: دالة عرض اللاعبين مع الأوسمة (Wins) ---
-        function updatePlayerList(players, creatorId) {
-            const list = document.getElementById('player-list');
-            list.innerHTML = '';
-            players.forEach(p => {
-                const item = document.createElement('li');
-                
-                // تحديد الدور
-                let role = (p.id === creatorId) ? "المنشئ" : "لاعب";
-                const displayRole = (p.id === socket.id) ? "أنت" : role;
-
-                // تصميم محتوى الصف (الاسم + الدور + وسام الفوز)
-                item.innerHTML = `
-                    <span>
-                        <strong style="${p.id === creatorId ? 'color: #2980b9;' : ''}">${p.name}</strong> 
-                        <small style="color: #95a5a6;">(${displayRole})</small>
-                    </span>
-                    <span class="win-badge">🏆 فوز: ${p.wins || 0}</span>
-                `;
-                
-                list.appendChild(item);
-            });
+        // دالة طرد اللاعب
+        function kickPlayer(targetId, targetName) {
+            if (confirm(`هل أنت متأكد من طرد اللاعب "${targetName}"؟`)) {
+                socket.emit('kick_player', { roomCode: ROOM_CODE, targetId: targetId });
+            }
         }
-        
+
+        // استقبال حدث الطرد (للاعب الذي تم طرده)
+        socket.on('you_are_kicked', () => {
+            alert("لقد تم طردك من الغرفة من قبل المنشئ.");
+            window.location.href = 'index.html';
+        });
+
         function sendSettings() {
-            if (!isRoomCreator) return;
-            const rounds = parseInt(document.getElementById('rounds-count').value);
-            const time = parseInt(document.getElementById('round-time').value);
-            socket.emit('update_settings', { roomCode: ROOM_CODE, rounds: rounds, time: time });
-            document.getElementById('settings-message').textContent = "✅ تم حفظ الإعدادات بنجاح.";
+            const rounds = document.getElementById('rounds-count').value;
+            const time = document.getElementById('round-time').value;
+            socket.emit('update_settings', { roomCode: ROOM_CODE, rounds: parseInt(rounds), time: parseInt(time) });
+            document.getElementById('settings-message').textContent = "تم حفظ الإعدادات بنجاح ✅";
+            setTimeout(() => { document.getElementById('settings-message').textContent = ""; }, 2000);
         }
 
         function startGame() {
-            if (isRoomCreator) socket.emit('start_game', { roomCode: ROOM_CODE });
+            socket.emit('start_game', { roomCode: ROOM_CODE });
         }
 
         socket.on('game_started', (data) => {
