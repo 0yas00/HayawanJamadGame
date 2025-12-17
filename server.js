@@ -133,11 +133,12 @@ io.on('connection', (socket) => {
     });
 
     // --- الانضمام لغرفة (تعديل لضمان التحديث الجماعي) ---
-   socket.on('join_room_request', async (data) => {
-        // تحويل الكود لنص وحذف الفراغات الزائدة لمنع الأخطاء
+// --- حدث الانضمام لغرفة ---
+// --- الانضمام لغرفة ---
+    socket.on('join_room_request', async (data) => {
         const roomCode = String(data.roomCode).trim(); 
         const room = activeRooms[roomCode];
-        
+
         if (room) {
             const userDb = await User.findOne({ username: data.playerName });
             const wins = userDb ? userDb.wins : 0;
@@ -150,19 +151,38 @@ io.on('connection', (socket) => {
 
             socket.emit('room_joined', { roomCode: roomCode });
             
-            // إرسال التحديث للجميع لضمان اختفاء رسالة "جاري التحميل"
+            // تحديث جماعي لكل الغرفة
             io.to(roomCode).emit('room_info', { 
                 players: room.players, 
                 creatorId: room.creatorId, 
                 settings: room.settings 
             });
         } else {
-            // سجل في التيرمنل لمعرفة الكود الذي فشل
             console.log(`❌ محاولة انضمام فاشلة لكود: ${roomCode}`);
             socket.emit('room_error', { message: 'رقم الغرفة غير صحيح أو انتهت صلاحيتها.' });
         }
     });
 
+    // --- تعريف الهوية في الانتظار ---
+    socket.on('identify_player', async (data) => {
+        const roomCode = String(data.roomCode).trim();
+        const room = activeRooms[roomCode];
+        if (room) {
+            const userDb = await User.findOne({ username: data.playerName });
+            const wins = userDb ? userDb.wins : 0;
+
+            let player = room.players.find(p => p.id === socket.id);
+            if (!player) {
+                player = { id: socket.id, name: data.playerName, wins: wins, score: 0 };
+                room.players.push(player);
+            }
+            io.to(roomCode).emit('room_info', { 
+                players: room.players, 
+                creatorId: room.creatorId, 
+                settings: room.settings 
+            });
+        }
+    });
     // --- تعريف الهوية في الانتظار (تعديل جوهري) ---
     socket.on('identify_player', async (data) => {
         const room = activeRooms[data.roomCode];
