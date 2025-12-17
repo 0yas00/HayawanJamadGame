@@ -131,19 +131,64 @@
         }
 
         // --- الاستجابة من السيرفر ---
-        socket.on('auth_success', (data) => {
-            playerName = data.username;
-            localStorage.setItem('gameUsername', data.username);
-            
-            document.getElementById('auth-section').style.display = 'none';
-            document.getElementById('game-options-container').style.display = 'block';
-            document.getElementById('welcome-msg').innerHTML = `مرحباً بك، **${data.username}**!`;
-            document.getElementById('user-wins').innerText = data.wins || 0;
-        });
+       // --- الاستجابة من السيرفر عند نجاح الدخول ---
+socket.on('auth_success', (data) => {
+    // 1. حفظ البريد الإلكتروني مؤقتاً لاستخدامه عند اختيار اسم جديد
+    localStorage.setItem('tempUserEmail', data.email);
+    
+    // 2. فحص هل المستخدم لديه اسم مستخدم (Username) أم أنه جديد (null)
+    if (!data.username) {
+        // إظهار نافذة اختيار الاسم المخصص التي أضفناها في الـ HTML
+        document.getElementById('username-modal').style.display = 'flex';
+        // إخفاء قسم التسجيل لتركيز اللاعب على اختيار الاسم
+        document.getElementById('auth-section').style.display = 'none';
+    } else {
+        // إذا كان الاسم موجوداً مسبقاً، أكمل الدخول بشكل طبيعي
+        finishPlayerLogin(data.username, data.wins);
+    }
+});
 
+// دالة مساعدة لإنهاء عملية الدخول وعرض اللوبي
+function finishPlayerLogin(name, wins) {
+    playerName = name;
+    localStorage.setItem('gameUsername', name);
+
+    // إخفاء واجهة التسجيل وإظهار واجهة اللوبي
+    document.getElementById('auth-section').style.display = 'none';
+    document.getElementById('game-options-container').style.display = 'block';
+
+    // تحديث رسالة الترحيب والاسم في أعلى الصفحة
+    document.getElementById('welcome-msg').innerHTML = `مرحباً بك، **${name}**! ✨`;
+    document.getElementById('user-wins').innerText = wins || 0;
+}
         socket.on('auth_error', (data) => {
             alert(data.message);
         });
+
+        // --- دالة إرسال الاسم الجديد للسيرفر عند الضغط على زر الحفظ ---
+function saveInitialUsername() {
+    const chosenName = document.getElementById('new-username-input').value.trim();
+    const email = localStorage.getItem('tempUserEmail'); // تأكد أنك حفظته في حدث auth_success
+
+    if (chosenName.length < 3) {
+        const errorElement = document.getElementById('username-error-msg');
+        if (errorElement) errorElement.textContent = "الاسم قصير جداً (3 أحرف على الأقل)";
+        return;
+    }
+
+    // إرسال طلب تحديث الاسم للسيرفر
+    socket.emit('update_initial_username', { email: email, newUsername: chosenName });
+}
+
+// استقبال الرد من السيرفر بعد نجاح تحديث الاسم
+socket.on('username_updated', (data) => {
+    // إخفاء النافذة المنبثقة
+    const modal = document.getElementById('username-modal');
+    if (modal) modal.style.display = 'none';
+    
+    // إكمال عملية الدخول باستخدام الدالة التي أضفتها أنت مسبقاً
+    finishPlayerLogin(data.username, 0);
+});
 
         // --- منطق اللعبة (إنشاء وانضمام) ---
         document.getElementById('play-btn').addEventListener('click', function() {
