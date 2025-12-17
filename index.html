@@ -71,6 +71,17 @@
         </div>
 
         <div id="game-options-container" style="display: none;">
+                <div id="game-options-container" style="display: none;">
+    <div id="user-header" style="background: #34495e; color: white; padding: 10px; display: flex; justify-content: space-between; align-items: center; border-radius: 8px; margin-bottom: 15px;">
+        <div>
+            <span>اللاعب: </span>
+            <strong id="header-player-name"></strong>
+        </div>
+        <button onclick="logoutNow()" style="background: #e74c3c; color: white; border: none; padding: 5px 15px; border-radius: 5px; cursor: pointer;">تسجيل خروج</button>
+    </div>
+    
+    <div class="welcome-message" id="welcome-msg"></div>
+    ...
             <div class="welcome-message" id="welcome-msg"></div>
             <div style="background: #f8f9fa; padding: 10px; border-radius: 10px; margin-bottom: 20px;">
                 🏆 عدد الانتصارات: <span id="user-wins" style="font-weight: bold; color: #e67e22;">0</span>
@@ -80,8 +91,6 @@
 
             <div class="game-options" id="options-panel" style="display: none;">
                 <h3 id="connection-status" style="color:#2ecc71;">✅ متصل بالخادم</h3>
-                <h4 style="margin-top: 15px;">مجموعة خاصة</h4>
-                <button class="option-button" onclick="showPrivateOptions()">انضمام أو إنشاء مجموعة خاصة</button>
                 <div id="private-options-content">
                     <div id="private-options" style="display: none; padding: 10px 0;">
                         <button class="option-button" id="create-btn" onclick="createPrivateRoom()">إنشاء مجموعة</button>
@@ -96,8 +105,26 @@
     </div>
 
     <script>
-        const socket = io();
-        let playerName = null;
+
+    const socket = io();
+    let playerName = null;
+
+    // --- السطر المطلوب: إصلاح واجهة الدخول التلقائي ---
+    window.onload = () => {
+        const savedEmail = localStorage.getItem('userEmail');
+        const savedName = localStorage.getItem('gameUsername');
+
+        if (savedEmail && savedName) {
+            // إذا وجدنا البيانات، ندخله للوبي فوراً دون طلب تسجيل الدخول
+            finishPlayerLogin(savedName, 0); 
+        } else {
+            // إذا لم يجد بيانات، يتأكد من ظهور واجهة التسجيل فقط
+            document.getElementById('auth-section').style.display = 'block';
+            document.getElementById('game-options-container').style.display = 'none';
+        }
+    };
+    // ----------------------------------------------
+
 
         // --- وظائف التبديل بين الدخول والإنشاء ---
         function toggleAuthMode(isRegister) {
@@ -149,22 +176,28 @@ socket.on('auth_success', (data) => {
 });
 
 // دالة مساعدة لإنهاء عملية الدخول وعرض اللوبي
+// دالة إنهاء عملية الدخول وتحديث الواجهة
 function finishPlayerLogin(name, wins) {
     playerName = name;
     localStorage.setItem('gameUsername', name);
 
-    // إخفاء واجهة التسجيل وإظهار واجهة اللوبي
+    // تحديث شريط اللاعب العلوي بالاسم
+    const headerName = document.getElementById('header-player-name');
+    if (headerName) headerName.textContent = name;
+
+    // إظهار اللوبي وإخفاء قسم التسجيل
     document.getElementById('auth-section').style.display = 'none';
     document.getElementById('game-options-container').style.display = 'block';
 
-    // تحديث رسالة الترحيب والاسم في أعلى الصفحة
+    // تحديث رسالة الترحيب والانتصارات
     document.getElementById('welcome-msg').innerHTML = `مرحباً بك، **${name}**! ✨`;
     document.getElementById('user-wins').innerText = wins || 0;
-}
-        socket.on('auth_error', (data) => {
-            alert(data.message);
-        });
+} // تأكد من وجود قوس واحد فقط هنا لإغلاق الدالة
 
+// استقبال أخطاء المصادقة من السيرفر
+socket.on('auth_error', (data) => {
+    alert(data.message);
+});
         // --- دالة إرسال الاسم الجديد للسيرفر عند الضغط على زر الحفظ ---
 function saveInitialUsername() {
     const chosenName = document.getElementById('new-username-input').value.trim();
@@ -228,6 +261,15 @@ socket.on('username_updated', (data) => {
                 // يمكنك هنا إرسال طلب للسيرفر لجلب بيانات الفوز المحدثة بالاسم
             }
         };
+function logoutNow() {
+    // مسح البيانات لضمان عدم الدخول التلقائي مرة أخرى
+    localStorage.removeItem('gameUsername');
+    localStorage.removeItem('userEmail');
+    localStorage.removeItem('tempUserEmail');
+    
+    // إعادة تحميل الصفحة للعودة لشاشة الدخول
+    location.reload();
+}
     </script>
 </body>
 </html>
