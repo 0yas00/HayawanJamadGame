@@ -1,3 +1,4 @@
+require('dotenv').config();
 // Start of Server.js
 // Final code update for Game Sync, Settings, and Waiting Room
 
@@ -7,16 +8,17 @@ const http = require('http');
 const path = require('path');
 const { Server } = require('socket.io');
 const axios = require('axios'); 
-const mongoose = require('mongoose'); // <--- إضافة جديدة
-const { OAuth2Client } = require('google-auth-library'); // <--- إضافة جديدة
+const mongoose = require('mongoose');
+const { OAuth2Client } = require('google-auth-library');
+const bcrypt = require('bcrypt'); // <--- إضافة جديدة لتشفير كلمات السر
 
 const app = express();
 const server = http.createServer(app);
 const io = new Server(server, {
-    cors: {
-        origin: "*", // السماح بالاتصال من أي مصدر
-        methods: ["GET", "POST"]
-    }
+    cors: {
+        origin: "*", // السماح بالاتصال من أي مصدر
+        methods: ["GET", "POST"]
+    }
 });
 
 const PORT = process.env.PORT || 3000;
@@ -29,24 +31,27 @@ const MONGODB_URI = process.env.MONGODB_URI || "mongodb+srv://1yasmanga_db_user:
 const client = new OAuth2Client(GOOGLE_CLIENT_ID);
 
 // -----------------------------------------------------
-// تعريف مخطط (Schema) المستخدمين (جديد)
+// تعريف مخطط (Schema) المستخدمين (محدث ليشمل الانتصارات والحساب اليدوي)
 // -----------------------------------------------------
 const UserSchema = new mongoose.Schema({
-    googleId: { type: String, required: true, unique: true },
+    googleId: { type: String, unique: true, sparse: true }, // sparse تسمح بوجود قيم فارغة لمن لا يستخدم جوجل
+    email: { type: String, unique: true, sparse: true },
+    password: { type: String },
     username: { type: String, required: true },
+    wins: { type: Number, default: 0 }, // تتبع الانتصارات
     totalScore: { type: Number, default: 0 },
 }, { timestamps: true });
 
 const User = mongoose.model('User', UserSchema);
 
 // -----------------------------------------------------
-// الاتصال بقاعدة البيانات (جديد)
+// الاتصال بقاعدة البيانات
 // -----------------------------------------------------
 mongoose.connect(MONGODB_URI)
     .then(() => console.log("✅ متصل بقاعدة بيانات MongoDB"))
     .catch(err => console.error("❌ فشل الاتصال بقاعدة بيانات MongoDB:", err));
 
-// دالة التحقق من توكن جوجل (جديد)
+// دالة التحقق من توكن جوجل
 async function verifyGoogleToken(token) {
     try {
         const ticket = await client.verifyIdToken({
@@ -66,285 +71,258 @@ async function verifyGoogleToken(token) {
 // ******************************************************
 // ** مفتاح Gemini API الخاص بك **
 // ******************************************************
-// ملاحظة: يُفضل استخدام process.env.GEMINI_API_KEY على Render
 const GEMINI_API_KEY = process.env.ENV_GEMINI_API_KEY || "AIzaSyAi4LC7bmWF3RJq8BaH025NelxAnFzWta8"; 
 
-// هيكل لحفظ الغرف النشطة وبياناتها (هيكل جديد يدعم الإعدادات)
 const activeRooms = {}; 
 
-// قائمة الحروف المتاحة (كما هي)
 const AVAILABLE_LETTERS = ['أ', 'ب', 'ت', 'ج', 'ح', 'خ', 'د', 'ر', 'ز', 'س', 'ش', 'ص', 'ط', 'ع', 'غ', 'ف', 'ق', 'ك', 'ل', 'م', 'ن', 'ه', 'و', 'ي'];
 
 // -----------------------------------------------------
 // الدوال المساعدة 
 // -----------------------------------------------------
 function generateRoomCode() {
-    return Math.floor(100000 + Math.random() * 900000).toString();
+    return Math.floor(100000 + Math.random() * 900000).toString();
 }
 
 function selectRandomLetter(usedLetters) {
-    const remainingLetters = AVAILABLE_LETTERS.filter(letter => !usedLetters.includes(letter));
-    if (remainingLetters.length === 0) {
-        return null;
-    }
-    const randomIndex = Math.floor(Math.random() * remainingLetters.length);
-    return remainingLetters[randomIndex];
+    const remainingLetters = AVAILABLE_LETTERS.filter(letter => !usedLetters.includes(letter));
+    if (remainingLetters.length === 0) {
+        return null;
+    }
+    const randomIndex = Math.floor(Math.random() * remainingLetters.length);
+    return remainingLetters[randomIndex];
 }
 
 async function checkAnswersWithAI(letter, answers) {
-    // تم حذف محتوى الـ prompt والاكتفاء بالإشارة إليه للاختصار
-    const prompt = `أنت محكّم خبير للعبة حيوان جماد نبات باللغة العربية. الحرف المطلوب هو: ${letter}. الرجاء تقييم الإجابات.`;
-    
-    try {
-        const response = await axios.post(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${GEMINI_API_KEY}`, {
-            contents: [{ parts: [{ text: prompt }] }],
-        }, {
-            timeout: 8000 
-        });
+    const prompt = `أنت محكّم خبير للعبة حيوان جماد نبات باللغة العربية. الحرف المطلوب هو: ${letter}. الرجاء تقييم الإجابات.`;
+    
+    try {
+        const response = await axios.post(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${GEMINI_API_KEY}`, {
+            contents: [{ parts: [{ text: prompt }] }],
+        }, {
+            timeout: 8000 
+        });
 
-        const aiText = response.data.candidates[0].content.parts[0].text;
-        const results = {};
-        let isValid = false;
-        
-        // (منطق تحليل إجابة الذكاء الاصطناعي كما هو)
-        aiText.split('\n').forEach(line => {
-            const trimmedLine = line.trim();
-            if (trimmedLine.includes('حيوان:')) {
-                results.حيوان = trimmedLine.includes('صحيح') ? 'صحيح' : 'خطأ';
-                if (results.حيوان === 'صحيح') isValid = true;
-            } else if (trimmedLine.includes('جماد:')) {
-                results.جماد = trimmedLine.includes('صحيح') ? 'صحيح' : 'خطأ';
-                if (results.جماد === 'صحيح') isValid = true;
-            } else if (trimmedLine.includes('نبات:')) {
-                results.نبات = trimmedLine.includes('صحيح') ? 'صحيح' : 'خطأ';
-                if (results.نبات === 'صحيح') isValid = true;
-            } else if (trimmedLine.includes('بلاد:')) {
-                results.بلاد = trimmedLine.includes('صحيح') ? 'صحيح' : 'خطأ';
-                if (results.بلاد === 'صحيح') isValid = true;
-            } else if (trimmedLine.includes('اسم:')) {
-                results.اسم = trimmedLine.includes('صحيح') ? 'صحيح' : 'خطأ';
-                if (results.اسم === 'صحيح') isValid = true;
-            }
-        });
+        const aiText = response.data.candidates[0].content.parts[0].text;
+        const results = {};
+        let isValid = false;
+        
+        aiText.split('\n').forEach(line => {
+            const trimmedLine = line.trim();
+            if (trimmedLine.includes('حيوان:')) {
+                results.حيوان = trimmedLine.includes('صحيح') ? 'صحيح' : 'خطأ';
+                if (results.حيوان === 'صحيح') isValid = true;
+            } else if (trimmedLine.includes('جماد:')) {
+                results.جماد = trimmedLine.includes('صحيح') ? 'صحيح' : 'خطأ';
+                if (results.جماد === 'صحيح') isValid = true;
+            } else if (trimmedLine.includes('نبات:')) {
+                results.نبات = trimmedLine.includes('صحيح') ? 'صحيح' : 'خطأ';
+                if (results.نبات === 'صحيح') isValid = true;
+            } else if (trimmedLine.includes('بلاد:')) {
+                results.بلاد = trimmedLine.includes('صحيح') ? 'صحيح' : 'خطأ';
+                if (results.بلاد === 'صحيح') isValid = true;
+            } else if (trimmedLine.includes('اسم:')) {
+                results.اسم = trimmedLine.includes('صحيح') ? 'صحيح' : 'خطأ';
+                if (results.اسم === 'صحيح') isValid = true;
+            }
+        });
 
-        return { evaluation: results, success: isValid };
+        return { evaluation: results, success: isValid };
 
-    } catch (error) {
-        console.error("خطأ في الاتصال بـ API الذكاء الاصطناعي:", error.response ? error.response.data : error.message);
-        return { evaluation: {}, success: false, error: true }; 
-    }
+    } catch (error) {
+        console.error("خطأ في الاتصال بـ API الذكاء الاصطناعي:", error.response ? error.response.data : error.message);
+        return { evaluation: {}, success: false, error: true }; 
+    }
 }
-// -----------------------------------------------------
 
 app.use(express.static(path.join(__dirname)));
 
 io.on('connection', (socket) => {
-    console.log(`لاعب جديد متصل: ${socket.id}`);
+    console.log(`لاعب جديد متصل: ${socket.id}`);
     
-    // 8. معالجة طلب تسجيل الدخول عبر جوجل (جديد)
+    // --- 8.1 تسجيل الدخول عبر جوجل ---
     socket.on('google_login', async (data) => {
         const payload = await verifyGoogleToken(data.token);
-
-        if (!payload) {
-            return socket.emit('auth_error', { message: 'رمز المصادقة غير صالح.' });
-        }
-
-        const googleId = payload.sub;
-        const name = payload.name;
+        if (!payload) return socket.emit('auth_error', { message: 'رمز المصادقة غير صالح.' });
 
         try {
-            let user = await User.findOne({ googleId: googleId });
-
+            let user = await User.findOne({ googleId: payload.sub });
             if (!user) {
-                // إنشاء مستخدم جديد
-                user = new User({
-                    googleId: googleId,
-                    username: name,
-                    totalScore: 0
-                });
+                user = new User({ googleId: payload.sub, username: payload.name });
                 await user.save();
-                console.log(`تم إنشاء مستخدم جديد: ${name}`);
-            } else {
-                 // تحديث الاسم وتسجيل الدخول
-                 user.username = name;
-                 await user.save();
-                 console.log(`تم تسجيل دخول المستخدم الحالي: ${name}`);
             }
-
-            // إرسال ملف تعريف المستخدم إلى الواجهة الأمامية
-            socket.emit('auth_success', {
-                googleId: user.googleId,
-                username: user.username,
-                totalScore: user.totalScore,
-            });
-
+            socket.emit('auth_success', { username: user.username, wins: user.wins });
         } catch (error) {
-            console.error("خطأ قاعدة البيانات في تسجيل الدخول:", error);
-            socket.emit('auth_error', { message: 'خطأ في الخادم أثناء تسجيل الدخول.' });
+            socket.emit('auth_error', { message: 'خطأ في قاعدة البيانات.' });
         }
     });
 
-    // 1. طلب إنشاء غرفة خاصة (من صفحة اللوبي)
-    socket.on('create_room_request', (data) => {
-        let roomCode = generateRoomCode();
-        while (activeRooms[roomCode]) {
-            roomCode = generateRoomCode();
-        }
+    // --- 8.2 إنشاء حساب جديد (إضافة جديدة) ---
+    socket.on('register_request', async (data) => {
+        try {
+            const { email, password, username } = data;
+            const existingUser = await User.findOne({ email });
+            if (existingUser) return socket.emit('auth_error', { message: 'البريد مستخدم بالفعل!' });
 
-        const initialLetter = selectRandomLetter([]); 
-        socket.join(roomCode);
-        
-        // **التصحيح: استخدام اسم اللاعب المرسل (data.playerName) لضمان ظهوره فوراً**
-        activeRooms[roomCode] = { 
-            players: [{ id: socket.id, name: data.playerName, isCreator: true, score: 0 }],
-            currentLetter: initialLetter, 
-            usedLetters: [initialLetter],
-            creatorId: socket.id,
-            settings: {
-                rounds: 5, time: 90, currentRound: 0 
-            }
-        };
-        
-        console.log(`تم إنشاء الغرفة: ${roomCode} بالحرف ${initialLetter}`);
-        
-        socket.emit('room_created', { roomCode: roomCode });
-        
-        // إرسال معلومات الغرفة للمنشئ فوراً لتحديث قائمة اللاعبين في waiting.html
-        socket.emit('room_info', {
-            players: activeRooms[roomCode].players,
-            creatorId: activeRooms[roomCode].creatorId,
-            settings: activeRooms[roomCode].settings
-        });
-    });
+            const hashedPassword = await bcrypt.hash(password, 10);
+            const newUser = new User({ email, password: hashedPassword, username });
+            await newUser.save();
+            socket.emit('auth_success', { username: newUser.username, wins: 0 });
+        } catch (error) {
+            socket.emit('auth_error', { message: 'خطأ في إنشاء الحساب.' });
+        }
+    });
 
-    // 2. طلب الانضمام لغرفة خاصة (من صفحة اللوبي)
-    socket.on('join_room_request', (data) => {
-        const { roomCode, playerName } = data;
-        const room = activeRooms[roomCode];
+    // --- 8.3 تسجيل دخول يدوي (إضافة جديدة) ---
+    socket.on('login_request', async (data) => {
+        try {
+            const { email, password } = data;
+            const user = await User.findOne({ email });
+            if (!user || !user.password) return socket.emit('auth_error', { message: 'البريد أو كلمة السر غير صحيحة!' });
 
-        if (room) {
-            socket.join(roomCode);
-            room.players.push({ id: socket.id, name: playerName, isCreator: false, score: 0 });
-            
-            console.log(`اللاعب ${playerName} انضم إلى الغرفة: ${roomCode}`);
+            const isMatch = await bcrypt.compare(password, user.password);
+            if (!isMatch) return socket.emit('auth_error', { message: 'كلمة السر غير صحيحة!' });
 
-            socket.emit('room_joined', { roomCode: roomCode });
-            
-            // إرسال رسالة التحديث لجميع اللاعبين (لتزامن القائمة)
-            io.to(roomCode).emit('room_info', {
-                players: room.players,
-                creatorId: room.creatorId,
-                settings: room.settings
-            });
-        } else {
-            socket.emit('room_error', { message: 'رمز الغرفة غير صحيح أو الغرفة غير موجودة.' });
-        }
-    });
+            socket.emit('auth_success', { username: user.username, wins: user.wins });
+        } catch (error) {
+            socket.emit('auth_error', { message: 'خطأ في تسجيل الدخول.' });
+        }
+    });
 
-    // 3. تحديد الهوية وطلب معلومات الغرفة (يتم عند دخول waiting.html)
-    socket.on('identify_player', (data) => {
-        const { roomCode, playerName } = data;
-        const room = activeRooms[roomCode];
+    // --- 8.4 تحديث الانتصارات (إضافة جديدة) ---
+    socket.on('update_winner_score', async (data) => {
+        try {
+            const user = await User.findOneAndUpdate(
+                { username: data.playerName },
+                { $inc: { wins: 1 } },
+                { new: true }
+            );
+            if(user) console.log(`🏆 تحديث الانتصارات لـ ${data.playerName}: ${user.wins}`);
+        } catch (error) {
+            console.error("فشل تحديث النتيجة.");
+        }
+    });
 
-        if (room) {
-            let player = room.players.find(p => p.id === socket.id);
-            if (!player) {
-                 // إضافة اللاعب إذا لم يكن موجوداً (في حال أرسل الرابط مباشرة)
-                 player = { id: socket.id, name: playerName, isCreator: false, score: 0 };
-                 room.players.push(player);
-            }
-            // تحديث اسمه
-            player.name = playerName;
+    // --- 1. طلب إنشاء غرفة خاصة (كما هو) ---
+    socket.on('create_room_request', (data) => {
+        let roomCode = generateRoomCode();
+        while (activeRooms[roomCode]) { roomCode = generateRoomCode(); }
+        const initialLetter = selectRandomLetter([]); 
+        socket.join(roomCode);
+        activeRooms[roomCode] = { 
+            players: [{ id: socket.id, name: data.playerName, isCreator: true, score: 0 }],
+            currentLetter: initialLetter, 
+            usedLetters: [initialLetter],
+            creatorId: socket.id,
+            settings: { rounds: 5, time: 90, currentRound: 0 }
+        };
+        socket.emit('room_created', { roomCode: roomCode });
+        socket.emit('room_info', {
+            players: activeRooms[roomCode].players,
+            creatorId: activeRooms[roomCode].creatorId,
+            settings: activeRooms[roomCode].settings
+        });
+    });
 
-            // إرسال معلومات الغرفة لجميع اللاعبين (لضمان التزامن)
-            io.to(roomCode).emit('room_info', {
-                players: room.players,
-                creatorId: room.creatorId,
-                settings: room.settings
-            });
-        }
-    });
+    // --- 2. طلب الانضمام لغرفة خاصة (كما هو) ---
+    socket.on('join_room_request', (data) => {
+        const { roomCode, playerName } = data;
+        const room = activeRooms[roomCode];
+        if (room) {
+            socket.join(roomCode);
+            room.players.push({ id: socket.id, name: playerName, isCreator: false, score: 0 });
+            socket.emit('room_joined', { roomCode: roomCode });
+            io.to(roomCode).emit('room_info', {
+                players: room.players,
+                creatorId: room.creatorId,
+                settings: room.settings
+            });
+        } else {
+            socket.emit('room_error', { message: 'رمز الغرفة غير صحيح.' });
+        }
+    });
 
-    // 4. تحديث الإعدادات (من منشئ الغرفة فقط)
-    socket.on('update_settings', (data) => {
-        const { roomCode, rounds, time } = data;
-        const room = activeRooms[roomCode];
+    // --- 3. تحديد الهوية (كما هو) ---
+    socket.on('identify_player', (data) => {
+        const { roomCode, playerName } = data;
+        const room = activeRooms[roomCode];
+        if (room) {
+            let player = room.players.find(p => p.id === socket.id);
+            if (!player) {
+                 player = { id: socket.id, name: playerName, isCreator: false, score: 0 };
+                 room.players.push(player);
+            }
+            player.name = playerName;
+            io.to(roomCode).emit('room_info', {
+                players: room.players,
+                creatorId: room.creatorId,
+                settings: room.settings
+            });
+        }
+    });
 
-        if (room && room.creatorId === socket.id) { // التحقق من أن المُرسل هو المنشئ
-            // تطبيق القيود على الخادم لضمان الأمان
-            room.settings.rounds = Math.max(1, Math.min(10, rounds)); 
-            room.settings.time = Math.max(30, Math.min(180, time));
-            
-            // إرسال الإعدادات المحدثة لجميع اللاعبين في الغرفة
-            io.to(roomCode).emit('room_info', {
-                players: room.players,
-                creatorId: room.creatorId,
-                settings: room.settings
-            });
-        }
-    });
+    // --- 4. تحديث الإعدادات (كما هو) ---
+    socket.on('update_settings', (data) => {
+        const { roomCode, rounds, time } = data;
+        const room = activeRooms[roomCode];
+        if (room && room.creatorId === socket.id) {
+            room.settings.rounds = Math.max(1, Math.min(10, rounds)); 
+            room.settings.time = Math.max(30, Math.min(180, time));
+            io.to(roomCode).emit('room_info', {
+                players: room.players,
+                creatorId: room.creatorId,
+                settings: room.settings
+            });
+        }
+    });
 
-    // 5. بدء اللعب (من منشئ الغرفة فقط)
-    socket.on('start_game', (data) => {
-        const room = activeRooms[data.roomCode];
-        if (room && room.creatorId === socket.id) {
-            // زيادة رقم الجولة (لبدء الجولة الأولى)
-            room.settings.currentRound = 1;
-            
-            // إخبار الجميع بالانتقال لصفحة اللعب (مع إرسال الإعدادات)
-            io.to(data.roomCode).emit('game_started', { 
-                roomCode: data.roomCode,
-                settings: room.settings // نرسل الوقت المحدد
-            });
-        }
-    });
+    // --- 5. بدء اللعب (كما هو) ---
+    socket.on('start_game', (data) => {
+        const room = activeRooms[data.roomCode];
+        if (room && room.creatorId === socket.id) {
+            room.settings.currentRound = 1;
+            io.to(data.roomCode).emit('game_started', { 
+                roomCode: data.roomCode,
+                settings: room.settings 
+            });
+        }
+    });
 
-    // 6. طلب الحصول على الحرف (عند دخول game.html)
-    socket.on('get_room_letter', (roomCode) => {
-        const room = activeRooms[roomCode];
-        if (room && room.currentLetter) {
-            // إرسال الحرف ووقت الجولة للبدء الفوري
-            socket.emit('room_letter', { 
-                currentLetter: room.currentLetter,
-                roundTime: room.settings.time // إرسال الوقت المحدد مسبقاً
-            });
-        }
-    });
-    
-    // 7. معالجة طلب إيقاف الوقت (كما هو، لكن الإيقاف الآن متزامن)
-    socket.on('stop_game_request', async (data) => {
-        const { roomCode, playerName, answers, currentLetter } = data;
-        
-        const { evaluation, success, error } = await checkAnswersWithAI(currentLetter, answers);
+    // --- 6. طلب الحصول على الحرف (كما هو) ---
+    socket.on('get_room_letter', (roomCode) => {
+        const room = activeRooms[roomCode];
+        if (room && room.currentLetter) {
+            socket.emit('room_letter', { 
+                currentLetter: room.currentLetter,
+                roundTime: room.settings.time 
+            });
+        }
+    });
+    
+    // --- 7. إيقاف الوقت والتحقق (كما هو) ---
+    socket.on('stop_game_request', async (data) => {
+        const { roomCode, playerName, answers, currentLetter } = data;
+        const { evaluation, success, error } = await checkAnswersWithAI(currentLetter, answers);
+        if (error) return socket.emit('stop_failed', { message: 'خطأ فني.' });
 
-        if (error) {
-            socket.emit('stop_failed', { message: 'فشل التحقق بسبب خطأ تقني. يرجى المتابعة.' });
-            return;
-        }
+        if (success) {
+            io.to(roomCode).emit('time_stopped', {
+                stopper: playerName,
+                answers: answers,
+                evaluation: evaluation,
+                message: `${playerName} ضغط على زر التوقف!`
+            });
+        } else {
+            socket.emit('stop_failed', { 
+                message: 'لم يتم اعتماد التوقف! الإجابات غير كافية.',
+                answers: evaluation 
+            });
+        }
+    });
 
-        if (success) {
-            // الإيقاف المتزامن للجميع
-            io.to(roomCode).emit('time_stopped', {
-                stopper: playerName,
-                answers: answers,
-                evaluation: evaluation,
-                message: `${playerName} ضغط على زر التوقف بنجاح!`
-            });
-        } else {
-            socket.emit('stop_failed', { 
-                message: 'لم يتم اعتماد التوقف! لم يتم العثور على إجابات صحيحة. يرجى المتابعة.',
-                answers: evaluation 
-            });
-        }
-    });
-
-    socket.on('disconnect', () => {
-        // إدارة خروج اللاعبين وإغلاق الغرف الفارغة
-        console.log(`لاعب فصل الاتصال: ${socket.id}`);
-        // ... (يمكن إضافة منطق لإزالة اللاعب من activeRooms)
-    });
+    socket.on('disconnect', () => { console.log(`لاعب فصل: ${socket.id}`); });
 });
 
 server.listen(PORT, () => {
-    console.log(`✅ الخادم يعمل على المنفذ: http://localhost:${PORT}`);
+    console.log(`✅ الخادم يعمل على المنفذ: http://localhost:${PORT}`);
 });

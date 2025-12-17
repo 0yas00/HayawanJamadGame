@@ -1,208 +1,166 @@
 <!DOCTYPE html>
 <html lang="ar" dir="rtl">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>اللوبي - حيوان جماد نبات</title>
-    <link rel="stylesheet" href="style.css">
-    <script src="/socket.io/socket.io.js"></script>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>اللوبي - حيوان جماد نبات</title>
+    <link rel="stylesheet" href="style.css">
+    <script src="/socket.io/socket.io.js"></script>
     <script src="https://accounts.google.com/gsi/client" async defer></script>
+    <style>
+        .auth-input { width: 90%; padding: 12px; margin: 8px 0; border: 1px solid #ddd; border-radius: 8px; font-family: inherit; }
+        .divider { margin: 20px 0; display: flex; align-items: center; text-align: center; color: #888; }
+        .divider::before, .divider::after { content: ''; flex: 1; border-bottom: 1px solid #ddd; }
+        .divider:not(:empty)::before { margin-left: .5em; }
+        .divider:not(:empty)::after { margin-right: .5em; }
+        .toggle-link { color: #3498db; cursor: pointer; text-decoration: underline; margin-top: 15px; display: block; }
+    </style>
 </head>
 <body>
-    <div class="lobby-container" style="width: 500px;">
-                <div class="welcome-message" id="welcome-msg">
-            الرجاء تسجيل الدخول للمتابعة.
-        </div>
+    <div class="lobby-container" style="width: 500px;">
+        <div id="auth-section">
+            <h2 id="auth-title">تسجيل الدخول</h2>
+            
+            <div id="g_id_onload"
+                 data-client_id="150394320903-79ve7o5v80r87l4ko8807hq3erjlprc3.apps.googleusercontent.com" 
+                 data-context="signin"
+                 data-ux_mode="popup"
+                 data-callback="handleCredentialResponse"
+                 data-auto_prompt="false">
+            </div>
+            <div class="g_id_signin" data-type="standard" data-shape="pill" data-theme="outline" data-text="signin_with" data-size="large" data-logo_alignment="left"></div>
 
-        <div id="g_id_onload"
-             data-client_id="150394320903-79ve7o5v80r87l4ko8807hq3erjlprc3.apps.googleusercontent.com" 
-             data-context="signin"
-             data-ux_mode="popup"
-             data-callback="handleCredentialResponse"
-             data-auto_prompt="false">
-        </div>
+            <div class="divider">أو</div>
 
-        <div class="g_id_signin"
-             data-type="standard"
-             data-shape="pill"
-             data-theme="outline"
-             data-text="تسجيل الدخول باستخدام جوجل"
-             data-size="large"
-             data-logo_alignment="left">
+            <div id="manual-auth-form">
+                <input type="email" id="auth-email" placeholder="البريد الإلكتروني" class="auth-input">
+                <input type="password" id="auth-password" placeholder="كلمة السر" class="auth-input">
+                
+                <div id="register-fields" style="display: none;">
+                    <input type="text" id="auth-username" placeholder="اسم المستخدم في اللعبة" class="auth-input">
+                </div>
+
+                <button class="option-button" id="btn-login" onclick="manualLogin()">دخول</button>
+                <button class="option-button" id="btn-register" style="display: none;" onclick="manualRegister()">إنشاء الحساب الآن</button>
+                
+                <span class="toggle-link" id="toggle-auth" onclick="toggleAuthMode(true)">ليس لديك حساب؟ إنشاء حساب جديد</span>
+                <span class="toggle-link" id="toggle-back" style="display: none;" onclick="toggleAuthMode(false)">لديك حساب بالفعل؟ سجل دخولك</span>
+            </div>
         </div>
 
         <div id="game-options-container" style="display: none;">
+            <div class="welcome-message" id="welcome-msg"></div>
+            <div style="background: #f8f9fa; padding: 10px; border-radius: 10px; margin-bottom: 20px;">
+                🏆 عدد الانتصارات: <span id="user-wins" style="font-weight: bold; color: #e67e22;">0</span>
+            </div>
             
-            <button class="main-play-button" id="play-btn">
-                العب
-            </button>
+            <button class="main-play-button" id="play-btn">العب</button>
 
-            <div class="game-options" id="options-panel" style="display: none;">
-                <h3 id="connection-status" style="color:#2ecc71;">✅ متصل بالخادم</h3>
-
-                <h4 style="margin-top: 15px;">مجموعة خاصة</h4>
-                <button class="option-button" onclick="showPrivateOptions()">
-                    انضمام أو إنشاء مجموعة خاصة
-                </button>
-                
-                <div id="private-options-content">
-                    <div id="private-options" style="display: none; padding: 10px 0;">
-                        <button class="option-button" id="create-btn" onclick="createPrivateRoom()">إنشاء مجموعة</button>
-                        <div style="margin-top: 10px; display: flex; justify-content: space-between;">
-                            <input type="text" id="room-code-input" placeholder="أدخل رمز المجموعة هنا" style="width: 68%; text-align: right;">
-                            <button class="option-button join" id="join-btn" onclick="joinPrivateRoom()">انضمام</button>
-                        </div>
-                    </div>
-                </div>
-                
-                <h4 style="margin-top: 20px;">مجموعات عامة</h4>
-                <button class="option-button join" onclick="alert('المجموعات العامة غير متاحة حالياً.')">
-                    تصفح المجموعات العامة
-                </button>
-            </div>
+            <div class="game-options" id="options-panel" style="display: none;">
+                <h3 id="connection-status" style="color:#2ecc71;">✅ متصل بالخادم</h3>
+                <h4 style="margin-top: 15px;">مجموعة خاصة</h4>
+                <button class="option-button" onclick="showPrivateOptions()">انضمام أو إنشاء مجموعة خاصة</button>
+                <div id="private-options-content">
+                    <div id="private-options" style="display: none; padding: 10px 0;">
+                        <button class="option-button" id="create-btn" onclick="createPrivateRoom()">إنشاء مجموعة</button>
+                        <div style="margin-top: 10px; display: flex; justify-content: space-between;">
+                            <input type="text" id="room-code-input" placeholder="أدخل رمز المجموعة" style="width: 68%; text-align: right;">
+                            <button class="option-button join" id="join-btn" onclick="joinPrivateRoom()">انضمام</button>
+                        </div>
+                    </div>
+                </div>
+            </div>
         </div>
-    </div>
+    </div>
 
-    <script>
-        const socket = io();
-        // لن نعتمد على localStorage لقراءة الاسم مباشرة، بل نستخدمه للتخزين بعد المصادقة
-        let playerName = null; 
-        
-        // ------------------- دوال Google Auth (جديد) -------------------
+    <script>
+        const socket = io();
+        let playerName = null;
 
-        // دالة يتم استدعاؤها بعد مصادقة جوجل
-        function handleCredentialResponse(response) {
-            const id_token = response.credential;
-            // إرسال التوكن إلى الخادم للتحقق من الصحة والبدء بالجلسة
-            socket.emit('google_login', { token: id_token });
-            
-            document.getElementById('welcome-msg').innerHTML = "جارٍ التحقق من هويتك...";
+        // --- وظائف التبديل بين الدخول والإنشاء ---
+        function toggleAuthMode(isRegister) {
+            document.getElementById('auth-title').innerText = isRegister ? "إنشاء حساب جديد" : "تسجيل الدخول";
+            document.getElementById('register-fields').style.display = isRegister ? "block" : "none";
+            document.getElementById('btn-register').style.display = isRegister ? "block" : "none";
+            document.getElementById('btn-login').style.display = isRegister ? "none" : "block";
+            document.getElementById('toggle-auth').style.display = isRegister ? "none" : "block";
+            document.getElementById('toggle-back').style.display = isRegister ? "block" : "none";
         }
 
-        // استقبال بيانات المستخدم بعد التحقق من الخادم
+        // --- إرسال طلبات المصادقة اليدوية ---
+        function manualLogin() {
+            const email = document.getElementById('auth-email').value;
+            const password = document.getElementById('auth-password').value;
+            if(!email || !password) return alert("الرجاء ملء جميع الحقول");
+            socket.emit('login_request', { email, password });
+        }
+
+        function manualRegister() {
+            const email = document.getElementById('auth-email').value;
+            const password = document.getElementById('auth-password').value;
+            const username = document.getElementById('auth-username').value;
+            if(!email || !password || !username) return alert("الرجاء ملء جميع الحقول");
+            socket.emit('register_request', { email, password, username });
+        }
+
+        // --- Google Auth ---
+        function handleCredentialResponse(response) {
+            socket.emit('google_login', { token: response.credential });
+        }
+
+        // --- الاستجابة من السيرفر ---
         socket.on('auth_success', (data) => {
-            // حفظ البيانات في الذاكرة المحلية (لتحقيق ميزة التسجيل التلقائي)
+            playerName = data.username;
             localStorage.setItem('gameUsername', data.username);
-            localStorage.setItem('googleId', data.googleId);
-            playerName = data.username; // تحديث المتغير المحلي
             
-            // تحديث الواجهة
+            document.getElementById('auth-section').style.display = 'none';
+            document.getElementById('game-options-container').style.display = 'block';
             document.getElementById('welcome-msg').innerHTML = `مرحباً بك، **${data.username}**!`;
-            document.getElementById('game-options-container').style.display = 'block'; // إظهار خيارات اللعب
-            document.querySelector('.g_id_signin').style.display = 'none'; // إخفاء زر جوجل
+            document.getElementById('user-wins').innerText = data.wins || 0;
         });
 
         socket.on('auth_error', (data) => {
-            alert(`فشل تسجيل الدخول: ${data.message}`);
-            document.getElementById('welcome-msg').innerHTML = "فشل تسجيل الدخول. يرجى المحاولة مجدداً.";
-            document.querySelector('.g_id_signin').style.display = 'block'; // إعادة إظهار زر جوجل
+            alert(data.message);
         });
 
-
-        // ----------------- دوال الواجهة المحدثة ------------------
-        
+        // --- منطق اللعبة (إنشاء وانضمام) ---
         document.getElementById('play-btn').addEventListener('click', function() {
-            const optionsPanel = document.getElementById('options-panel');
-            optionsPanel.style.display = 'block';
-            this.style.display = 'none'; 
-        });
+            document.getElementById('options-panel').style.display = 'block';
+            this.style.display = 'none'; 
+        });
 
-        function showPrivateOptions() {
-            const privateOptions = document.getElementById('private-options');
-            if (document.getElementById('private-options-content').innerHTML.includes('إنشاء مجموعة')) {
-                privateOptions.style.display = privateOptions.style.display === 'none' ? 'flex' : 'none';
-                privateOptions.style.flexDirection = 'column';
-            }
-        }
-        
-        function browsePublicGroups() {
-            // وظيفة معطلة حالياً
-        }
+        function showPrivateOptions() {
+            const opts = document.getElementById('private-options');
+            opts.style.display = opts.style.display === 'none' ? 'flex' : 'none';
+            opts.style.flexDirection = 'column';
+        }
 
-        // ----------------- منطق الخادم المحدث ------------------
+        function createPrivateRoom() {
+            socket.emit('create_room_request', { playerName: playerName });
+        }
 
-        function createPrivateRoom() {
-            if (!playerName) return alert("الرجاء تسجيل الدخول أولاً.");
-            document.getElementById('private-options-content').innerHTML = 
-                `<h3 style="text-align: center; color: #3498db;">جارٍ إنشاء الغرفة...</h3>`;
-            
-            // **إرسال اسم اللاعب المسجل**
-            socket.emit('create_room_request', { playerName: playerName });
-        }
-        
-        function joinPrivateRoom() {
-            if (!playerName) return alert("الرجاء تسجيل الدخول أولاً.");
-            const code = document.getElementById('room-code-input').value.trim();
-            if (code && code.length === 6) {
-                // نرسل رمز الغرفة واسم اللاعب للانضمام
-                socket.emit('join_room_request', { roomCode: code, playerName: playerName });
-            } else {
-                alert("الرجاء إدخال رمز مكون من 6 أرقام.");
-            }
-        }
-        
-        // الدالة الموحدة والمصححة للانتقال لصفحة الانتظار
-        function startGame(roomCode) {
-            window.location.href = `waiting.html?roomCode=${roomCode}`; 
-        }
-
-        // ----------------- Socket Listeners (كما هي) ------------------
-        
-        // عند استقبال الرمز من الخادم (بعد إنشاء الغرفة)
-        socket.on('room_created', (data) => {
-            const contentDiv = document.getElementById('private-options-content');
-            contentDiv.innerHTML = `
-                <h3 style="text-align: center; color: #2ecc71;">تم إنشاء الغرفة بنجاح!</h3>
-                <p style="text-align: center;">شارك هذا الرمز مع أصدقائك:</p>
-                <h2 style="color: #e74c3c; text-align: center;">${data.roomCode}</h2>
-                <h3 style="text-align: center; color: #f39c12;">الحرف سري والإعدادات تظهر في صفحة الانتظار!</h3>
-                
-                <button class="option-button main-play-button" style="width: 100%; margin-top: 20px;" 
-                    onclick="startGame('${data.roomCode}')">
-                    الانتقال لغرفة الانتظار
-                </button>
-            `;
-        });
-        
-        // عند الانضمام بنجاح إلى غرفة موجودة
-        socket.on('room_joined', (data) => {
-             alert(`انضممت بنجاح إلى الغرفة ${data.roomCode}. جارٍ التوجيه لصفحة الانتظار...`);
-             startGame(data.roomCode);
-        });
-
-        // عند حدوث خطأ 
-        socket.on('room_error', (data) => {
-             alert(data.message);
-             // إعادة عرض خيارات الإنشاء والانضمام
-             const contentDiv = document.getElementById('private-options-content');
-             contentDiv.innerHTML = `<div id="private-options" style="padding: 10px 0;">
-                <button class="option-button" id="create-btn" onclick="createPrivateRoom()">إنشاء مجموعة</button>
-                <div style="margin-top: 10px; display: flex; justify-content: space-between;">
-                    <input type="text" id="room-code-input" placeholder="أدخل رمز المجموعة هنا" style="width: 68%; text-align: right;">
-                    <button class="option-button join" id="join-btn" onclick="joinPrivateRoom()">انضمام</button>
-                </div>
-             </div>`;
-             document.getElementById('private-options').style.display = 'flex';
-             document.getElementById('private-options').style.flexDirection = 'column';
-        });
-        
-        // **منطق الدخول التلقائي عند تحميل الصفحة (جديد)**
-        window.onload = function() {
-            const storedUsername = localStorage.getItem('gameUsername');
-            const storedGoogleId = localStorage.getItem('googleId');
-
-            if (storedUsername && storedGoogleId) {
-                // تسجيل الدخول التلقائي
-                playerName = storedUsername;
-                document.getElementById('welcome-msg').innerHTML = `مرحباً بك، **${storedUsername}**!`;
-                document.getElementById('game-options-container').style.display = 'block';
-                document.querySelector('.g_id_signin').style.display = 'none';
+        function joinPrivateRoom() {
+            const code = document.getElementById('room-code-input').value.trim();
+            if (code.length === 6) {
+                socket.emit('join_room_request', { roomCode: code, playerName: playerName });
             } else {
-                 document.querySelector('.g_id_signin').style.display = 'block';
-                 document.getElementById('welcome-msg').innerHTML = "الرجاء تسجيل الدخول للمتابعة.";
+                alert("الرمز غير صحيح");
+            }
+        }
+
+        socket.on('room_created', (data) => { window.location.href = `waiting.html?roomCode=${data.roomCode}`; });
+        socket.on('room_joined', (data) => { window.location.href = `waiting.html?roomCode=${data.roomCode}`; });
+        socket.on('room_error', (data) => { alert(data.message); });
+
+        // الدخول التلقائي عند التحميل
+        window.onload = function() {
+            const stored = localStorage.getItem('gameUsername');
+            if (stored) {
+                // ملاحظة: للتطوير، يفضل عمل token للتحقق، حالياً سنعتمد على الاسم لتبسيط العرض
+                playerName = stored;
+                // يمكنك هنا إرسال طلب للسيرفر لجلب بيانات الفوز المحدثة بالاسم
             }
         };
-
-    </script>
+    </script>
 </body>
 </html>

@@ -7,95 +7,22 @@
     <link rel="stylesheet" href="style.css">
     <script src="/socket.io/socket.io.js"></script>
     <style>
-        /* التنسيقات (تم تضمينها كما هي لضمان عدم وجود أخطاء CSS) */
-        .game-header {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            margin-bottom: 20px;
-            padding: 10px 0;
-            border-bottom: 2px solid #ddd;
-        }
-
-        #timer {
-            font-size: 40px;
-            font-weight: bold;
-            color: #e74c3c;
-            border: 3px solid #e74c3c;
-            padding: 10px 20px;
-            border-radius: 10px;
-            background-color: #ffeaea;
-        }
-
-        .challenge-letter {
-            font-size: 50px;
-            color: #2c3e50;
-            font-weight: 900;
-        }
-
-        .answer-grid {
-            display: grid;
-            grid-template-columns: repeat(2, 1fr);
-            gap: 20px;
-            margin-bottom: 30px;
-        }
-
-        .answer-box {
-            background-color: #ecf0f1;
-            padding: 15px;
-            border-radius: 8px;
-        }
-
-        .answer-box label {
-            display: block;
-            font-weight: bold;
-            margin-bottom: 8px;
-            color: #2980b9;
-            font-size: 18px;
-        }
-
-        .answer-box input {
-            width: 100%;
-            padding: 10px;
-            border: 1px solid #bdc3c7;
-            border-radius: 5px;
-            box-sizing: border-box;
-            text-align: right;
-        }
-
-        #stop-btn {
-            background-color: #f39c12;
-            color: white;
-            border: none;
-            padding: 15px 30px;
-            border-radius: 8px;
-            cursor: pointer;
-            font-size: 22px;
-            transition: background-color 0.3s ease;
-            width: 100%;
-        }
-        #stop-btn:hover:not(:disabled) {
-            background-color: #e67e22;
-        }
-        #stop-btn:disabled {
-            background-color: #cccccc;
-            cursor: not-allowed;
-        }
-        /* لتظهر رسائل النظام بوضوح */
-        #system-message {
-            margin-top: 20px;
-            padding: 10px;
-            background-color: #f0ad4e;
-            color: white;
-            border-radius: 5px;
-            display: none;
-            text-align: center;
-        }
+        /* التنسيقات (كما هي) */
+        .game-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; padding: 10px 0; border-bottom: 2px solid #ddd; }
+        #timer { font-size: 40px; font-weight: bold; color: #e74c3c; border: 3px solid #e74c3c; padding: 10px 20px; border-radius: 10px; background-color: #ffeaea; }
+        .challenge-letter { font-size: 50px; color: #2c3e50; font-weight: 900; }
+        .answer-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 20px; margin-bottom: 30px; }
+        .answer-box { background-color: #ecf0f1; padding: 15px; border-radius: 8px; }
+        .answer-box label { display: block; font-weight: bold; margin-bottom: 8px; color: #2980b9; font-size: 18px; }
+        .answer-box input { width: 100%; padding: 10px; border: 1px solid #bdc3c7; border-radius: 5px; box-sizing: border-box; text-align: right; }
+        #stop-btn { background-color: #f39c12; color: white; border: none; padding: 15px 30px; border-radius: 8px; cursor: pointer; font-size: 22px; transition: background-color 0.3s ease; width: 100%; }
+        #stop-btn:hover:not(:disabled) { background-color: #e67e22; }
+        #stop-btn:disabled { background-color: #cccccc; cursor: not-allowed; }
+        #system-message { margin-top: 20px; padding: 10px; background-color: #f0ad4e; color: white; border-radius: 5px; display: none; text-align: center; }
     </style>
 </head>
 <body>
     <div class="lobby-container">
-        
         <div id="system-message"></div>
 
         <div class="game-header">
@@ -118,7 +45,6 @@
     </div>
 
     <script>
-        // دالة للحصول على باراميترات (Parameters) من رابط URL
         function getUrlParameter(name) {
             name = name.replace(/[\[]/, '\\[').replace(/[\]]/, '\\]');
             var regex = new RegExp('[\\?&]' + name + '=([^&#]*)');
@@ -126,174 +52,101 @@
             return results === null ? '' : decodeURIComponent(results[1].replace(/\+/g, ' '));
         }
 
-        // ------------------------------------------------------------------
-
-        // قراءة رمز الغرفة مباشرة من رابط URL بدلاً من localStorage
         const ROOM_CODE = getUrlParameter('roomCode');
+        const playerName = localStorage.getItem('gameUsername') || 'لاعب مجهول';
         
-        // التحقق من أن الرمز موجود
-        if (!ROOM_CODE || ROOM_CODE.length !== 6) {
-            alert('خطأ: لم يتم تحديد الغرفة أو الرمز غير صحيح. يرجى البدء من اللوبي.');
-            window.location.href = 'lobby.html';
+        if (!ROOM_CODE) {
+            alert('خطأ في الرمز!');
+            window.location.href = 'index.html';
         }
-        
+
         let timerInterval;
-        let timeRemaining = 60; // القيمة الأولية (سيتم تحديثها من الخادم)
+        let timeRemaining = 60;
         let gameRunning = true;
         let currentLetter = ''; 
         
-        const playerName = localStorage.getItem('gameUsername') || 'لاعب مجهول';
-        
-       const socket = io({ 
-    transports: ['websocket'], // فرض استخدام WebSockets فقط
-    upgrade: false
-});
+        const socket = io();
 
         // ----------------- الدوال المساعدة ------------------
-
-        // دالة لتعطيل / تفعيل جميع حقول الإدخال
         function toggleInputs(disabled) {
-            document.querySelectorAll('.answer-grid input').forEach(input => {
-                input.disabled = disabled;
-            });
+            document.querySelectorAll('.answer-grid input').forEach(input => { input.disabled = disabled; });
         }
 
         function displaySystemMessage(message, color) {
             const sysMsg = document.getElementById('system-message');
-            sysMsg.innerHTML = message; // استخدام innerHTML للسماح بالـ bold و emoji
+            sysMsg.innerHTML = message;
             sysMsg.style.backgroundColor = color;
             sysMsg.style.display = 'block';
-            setTimeout(() => {
-                sysMsg.style.display = 'none';
-            }, 5000); 
         }
 
         function updateLetterDisplay(letter) {
             document.getElementById('current-letter').textContent = letter;
-            document.querySelectorAll('.answer-box input').forEach(input => {
-                const category = input.getAttribute('data-category');
-                input.placeholder = `أدخل ${category} بحرف ${letter}`;
-            });
-        }
-        
-        function updateTimerDisplay() {
-            const minutes = Math.floor(timeRemaining / 60);
-            const seconds = timeRemaining % 60;
-            document.getElementById('timer').textContent = 
-                `${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
         }
 
         function startTimer() {
-            // مسح أي مؤقت سابق للتأكد من عدم وجود تضارب
-            clearInterval(timerInterval); 
-            
+            clearInterval(timerInterval);
             timerInterval = setInterval(() => {
                 if (timeRemaining > 0 && gameRunning) {
                     timeRemaining--;
-                    updateTimerDisplay();
+                    const minutes = Math.floor(timeRemaining / 60);
+                    const seconds = timeRemaining % 60;
+                    document.getElementById('timer').textContent = `${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
                 } else if (timeRemaining <= 0) {
                     clearInterval(timerInterval);
-                    gameRunning = false;
-                    toggleInputs(true); // تعطيل الحقول
-                    document.getElementById('stop-btn').disabled = true;
-                    displaySystemMessage("انتهى الوقت! سيتم مراجعة إجاباتك.", '#dc3545'); 
+                    toggleInputs(true);
                 }
-            }, 1000); 
-        }
-
-        function getPlayerAnswers() {
-            const categories = ['اسم', 'حيوان', 'نبات', 'جماد', 'بلاد'];
-            const answers = {};
-            categories.forEach(cat => {
-                const inputElement = document.getElementById(cat);
-                answers[cat] = inputElement ? inputElement.value.trim() : '';
-            });
-            return answers;
+            }, 1000);
         }
 
         // ----------------- Socket Listeners ------------------
-        
         socket.on('connect', () => {
-            console.log(`متصل بالخادم في الغرفة: ${ROOM_CODE}`);
-            // طلب الحرف (الذي سيرسل الحرف ووقت الجولة المحدد)
-            requestGameLetter(); 
-        });
-
-        // دالة طلب الحرف من الخادم عند بدء اللعب
-        function requestGameLetter() {
             socket.emit('get_room_letter', ROOM_CODE);
-            document.getElementById('current-letter').textContent = '?';
-            toggleInputs(true); // تعطيل الحقول حتى يأتي الحرف والوقت
-        }
+        });
 
-        // الاستماع لرد الخادم بالحرف والوقت
         socket.on('room_letter', (data) => {
-            if (data.currentLetter) {
-                // 1. تحديث الحرف
-                updateLetterDisplay(data.currentLetter); 
-                currentLetter = data.currentLetter;
-                
-                // 2. تحديث وقت الجولة وبدء المؤقت
-                timeRemaining = data.roundTime; // استخدام الوقت المحدد من صفحة الإعدادات
-                updateTimerDisplay(); 
-                startTimer();
-                
-                // 3. تفعيل الحقول وبدء اللعب
-                toggleInputs(false); 
-            }
-        });
-        
-        // الإيقاف المتزامن للجميع (بما فيهم اللاعب الذي ضغط على توقف)
-        socket.on('time_stopped', (data) => {
-            if (gameRunning) {
-                clearInterval(timerInterval); 
-                gameRunning = false;
-                
-                // تعطيل الحقول والزر للجميع
-                toggleInputs(true); 
-                document.getElementById('stop-btn').disabled = true;
-                
-                // إعلان الفائز بالجولة
-                const announcement = `🎉 الفائز بالجولة: **${data.stopper}**!`;
-                displaySystemMessage(announcement, '#00bfa5'); 
-            }
-        });
-        
-        socket.on('stop_failed', (data) => {
-            // هذه الرسالة تذهب فقط للاعب الذي أوقف اللعب وفشلت إجابته
-            displaySystemMessage(data.message, '#f0ad4e');
-            gameRunning = true;
-            document.getElementById('stop-btn').disabled = false;
-            startTimer(); // استكمال المؤقت لهذا اللاعب
+            currentLetter = data.currentLetter;
+            updateLetterDisplay(currentLetter);
+            timeRemaining = data.roundTime;
+            startTimer();
+            toggleInputs(false);
         });
 
-        // ----------------- وظيفة معالجة زر "توقف" ------------------
+        socket.on('time_stopped', (data) => {
+            gameRunning = false;
+            clearInterval(timerInterval);
+            toggleInputs(true);
+            document.getElementById('stop-btn').disabled = true;
+
+            // --- الإضافة الجديدة: إذا كنت أنت الفائز، اطلب من السيرفر تحديث قاعدة البيانات ---
+            if (data.stopper === playerName) {
+                displaySystemMessage(`🎉 أحسنت يا ${playerName}! تم تسجيل فوزك في حسابك.`, '#27ae60');
+                socket.emit('update_winner_score', { playerName: playerName });
+            } else {
+                displaySystemMessage(`🛑 توقف اللعب! الفائز هو: ${data.stopper}`, '#c0392b');
+            }
+        });
+
+        socket.on('stop_failed', (data) => {
+            displaySystemMessage(data.message, '#f39c12');
+            document.getElementById('stop-btn').disabled = false;
+        });
 
         function handleStopGame() {
-            if (!gameRunning || !currentLetter) return;
-
-            // إيقاف المؤقت محلياً (مؤقتاً) وتعطيل الزر لمنع الضغط المزدوج
-            clearInterval(timerInterval);
-            document.getElementById('stop-btn').disabled = true; 
-
-            const answers = getPlayerAnswers();
-
-            // إرسال طلب الإيقاف والتحقق للذكاء الاصطناعي
+            if (!gameRunning) return;
+            const answers = {
+                اسم: document.getElementById('اسم').value,
+                حيوان: document.getElementById('حيوان').value,
+                نبات: document.getElementById('نبات').value,
+                جماد: document.getElementById('جماد').value,
+                بلاد: document.getElementById('بلاد').value
+            };
             socket.emit('stop_game_request', { 
                 roomCode: ROOM_CODE, 
-                playerName: playerName,
+                playerName: playerName, 
                 answers: answers, 
                 currentLetter: currentLetter 
             });
-
-            displaySystemMessage("طلبك قيد التحقق الفوري بواسطة الذكاء الاصطناعي...", '#007bff');
         }
-
-        // بدء اللعب عند تحميل الصفحة (يتم بدء المؤقت فقط بعد استلام الحرف والوقت من الخادم)
-        window.onload = function() {
-            // يتم استدعاء requestGameLetter عند الاتصال بـ Socket.io لبدء عملية اللعب
-            updateTimerDisplay(); // لعرض الوقت الأولي (01:00) مؤقتاً
-        };
     </script>
 </body>
 </html>
