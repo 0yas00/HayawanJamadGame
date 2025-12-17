@@ -81,7 +81,6 @@ io.on('connection', (socket) => {
         try {
             let user = await User.findOne({ googleId: payload.sub });
             if (!user) {
-                // ننشئ الحساب بـ username يساوي null ليتم طلبه لاحقاً في اللوبي
                 user = new User({ 
                     googleId: payload.sub, 
                     email: payload.email, 
@@ -89,7 +88,6 @@ io.on('connection', (socket) => {
                 });
                 await user.save();
             }
-            // إرسال الـ email والـ username (الذي قد يكون null للمستخدم الجديد)
             socket.emit('auth_success', { 
                 username: user.username, 
                 wins: user.wins, 
@@ -107,7 +105,6 @@ io.on('connection', (socket) => {
             const hashedPassword = await bcrypt.hash(password, 10);
             const newUser = new User({ email, password: hashedPassword, username });
             await newUser.save();
-            // نرسل البيانات بنجاح مع البريد الإلكتروني
             socket.emit('auth_success', { 
                 username: newUser.username, 
                 wins: 0, 
@@ -132,11 +129,10 @@ io.on('connection', (socket) => {
         } catch (error) { socket.emit('auth_error', { message: 'فشل الدخول' }); }
     });
 
-    // --- 4. تحديث اسم الشهرة لأول مرة (يضاف هذا الجزء الجديد هنا) ---
+    // --- 4. تحديث اسم الشهرة لأول مرة ---
     socket.on('update_initial_username', async (data) => {
         try {
             const { email, newUsername } = data;
-            // فحص إذا كان الاسم مأخوذاً من قبل مستخدم آخر
             const existingName = await User.findOne({ username: newUsername });
             if (existingName) return socket.emit('auth_error', { message: 'هذا الاسم مأخوذ بالفعل، اختر غيره' });
 
@@ -153,12 +149,11 @@ io.on('connection', (socket) => {
         }
     });
 
-    // --- إنشاء غرفة ---
+    // --- إنشاء غرفة (تم التعديل لضمان الحفظ) ---
     socket.on('create_room_request', async (data) => {
         let roomCode = generateRoomCode();
         const initialLetter = selectRandomLetter([]);
         
-        // جلب انتصارات المنشئ من القاعدة
         const userDb = await User.findOne({ username: data.playerName });
         const wins = userDb ? userDb.wins : 0;
 
@@ -170,18 +165,16 @@ io.on('connection', (socket) => {
             creatorId: socket.id,
             settings: { rounds: 5, time: 90, currentRound: 0 }
         };
+        console.log(`✅ تم إنشاء غرفة وحفظها: ${roomCode}`);
         socket.emit('room_created', { roomCode });
     });
 
-    // --- الانضمام لغرفة (تعديل لضمان التحديث الجماعي) ---
-// --- حدث الانضمام لغرفة ---
-// --- الانضمام لغرفة ---
-socket.on('join_room_request', async (data) => {
+    // --- الانضمام لغرفة (تم التعديل لضمان المطابقة) ---
+    socket.on('join_room_request', async (data) => {
         const roomCode = String(data.roomCode).trim();
         const room = activeRooms[roomCode];
 
-        // سطر مهم جداً لمراقبة ما يحدث في السيرفر
-        console.log(`🔎 محاولة دخول للغرفة: "${roomCode}" | الغرف النشطة حالياً: ${Object.keys(activeRooms)}`);
+        console.log(`🔎 محاولة دخول: "${roomCode}" | الغرف المتاحة: ${Object.keys(activeRooms)}`);
 
         if (room) {
             socket.join(roomCode);
@@ -199,15 +192,12 @@ socket.on('join_room_request', async (data) => {
                 settings: room.settings 
             });
         } else {
-            // إرسال تنبيه مفصل للاعب
             socket.emit('room_error', { message: `عذراً، الغرفة رقم (${roomCode}) غير موجودة حالياً.` });
         }
     });
 
-    // --- تعريف الهوية في الانتظار (تعديل جوهري) ---
-   // --- تعريف الهوية في الانتظار (النسخة النهائية الموحدة) ---
+    // --- تعريف الهوية في الانتظار (تم توحيدها وتعديلها) ---
     socket.on('identify_player', async (data) => {
-        // تحويل الكود لنص وحذف المسافات لضمان المطابقة
         const roomCode = String(data.roomCode).trim();
         const room = activeRooms[roomCode];
         
@@ -220,21 +210,18 @@ socket.on('join_room_request', async (data) => {
                 player = { id: socket.id, name: data.playerName, wins: wins, score: 0 };
                 room.players.push(player);
                 
-                // إرسال رسالة ترحيب للجميع في الغرفة
                 io.to(roomCode).emit('system_message', { 
                     message: `📢 انضم ${data.playerName} إلى الغرفة`,
                     color: '#27ae60' 
                 });
             }
 
-            // تحديث القائمة فوراً عند الجميع لتمويه "جاري التحميل"
             io.to(roomCode).emit('room_info', { 
                 players: room.players, 
                 creatorId: room.creatorId, 
                 settings: room.settings 
             });
         } else {
-            // في حال فشل السيرفر في إيجاد الغرفة
             socket.emit('room_error', { message: "عذراً، الغرفة غير موجودة أو انتهت صلاحيتها." });
         }
     });
