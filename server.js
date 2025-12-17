@@ -37,7 +37,19 @@ const UserSchema = new mongoose.Schema({
 }, { timestamps: true });
 
 const User = mongoose.model('User', UserSchema);
+// --- إضافة نموذج الغرفة هنا لضمان بقائها في قاعدة البيانات ---
+const RoomSchema = new mongoose.Schema({
+    roomCode: { type: String, unique: true, required: true },
+    creatorId: { type: String, required: true },
+    players: { type: Array, default: [] },
+    settings: { type: Object, default: { rounds: 5, time: 90, currentRound: 0 } },
+    currentLetter: { type: String, default: "" },
+    usedLetters: { type: Array, default: [] },
+    createdAt: { type: Date, default: Date.now, expires: 7200 } // حذف الغرفة تلقائياً بعد ساعتين
+});
 
+const Room = mongoose.model('Room', RoomSchema);
+// ---------------------------------------------------------
 // الاتصال بقاعدة البيانات
 mongoose.connect(MONGODB_URI)
     .then(() => console.log("✅ متصل بقاعدة بيانات MongoDB"))
@@ -149,40 +161,41 @@ io.on('connection', (socket) => {
         }
     });
 
-    // --- إنشاء غرفة (تم التعديل لضمان الحفظ) ---
-    socket.on('create_room_request', async (data) => {
+socket.on('create_room_request', async (data) => {
+    try {
         let roomCode = generateRoomCode();
-        const initialLetter = selectRandomLetter([]);
-        
         const userDb = await User.findOne({ username: data.playerName });
-        const wins = userDb ? userDb.wins : 0;
-
-        socket.join(roomCode);
-        activeRooms[roomCode] = { 
-            players: [{ id: socket.id, name: data.playerName, wins: wins, score: 0 }],
-            currentLetter: initialLetter, 
-            usedLetters: [initialLetter],
+        
+        // إنشاء الغرفة في MongoDB بدلاً من ذاكرة السيرفر
+        const newRoom = new Room({
+            roomCode: roomCode,
             creatorId: socket.id,
+            players: [{ id: socket.id, name: data.playerName, wins: userDb ? userDb.wins : 0, score: 0 }],
             settings: { rounds: 5, time: 90, currentRound: 0 }
-        };
-        console.log(`✅ تم إنشاء غرفة وحفظها: ${roomCode}`);
+        });
+
+        await newRoom.save(); // الحفظ الفعلي
+        socket.join(roomCode);
+        console.log(`✅ تم حفظ الغرفة في قاعدة البيانات: ${roomCode}`);
         socket.emit('room_created', { roomCode });
-    });
+    } catch (error) {
+        socket.emit('room_error', { message: "فشل إنشاء الغرفة" });
+    }
+});
 
-    // --- الانضمام لغرفة (تم التعديل لضمان المطابقة) ---
-    socket.on('join_room_request', async (data) => {
-        const roomCode = String(data.roomCode).trim();
-        const room = activeRooms[roomCode];
-
-        console.log(`🔎 محاولة دخول: "${roomCode}" | الغرف المتاحة: ${Object.keys(activeRooms)}`);
+  socket.on('join_room_request', async (data) => {
+    const roomCode = String(data.roomCode).trim();
+    try {
+        // البحث عن الغرفة في قاعدة البيانات
+        const room = await Room.findOne({ roomCode: roomCode });
 
         if (room) {
             socket.join(roomCode);
             const userDb = await User.findOne({ username: data.playerName });
-            const wins = userDb ? userDb.wins : 0;
-
-            if (!room.players.find(p => p.id === socket.id)) {
-                room.players.push({ id: socket.id, name: data.playerName, wins: wins, score: 0 });
+            
+            if (!room.players.find(p => p.name === data.playerName)) {
+                room.players.push({ id: socket.id, name: data.playerName, wins: userDb ? userDb.wins : 0, score: 0 });
+                await Room.updateOne({ roomCode: roomCode }, { players: room.players });
             }
 
             socket.emit('room_joined', { roomCode: roomCode });
@@ -194,8 +207,10 @@ io.on('connection', (socket) => {
         } else {
             socket.emit('room_error', { message: `عذراً، الغرفة رقم (${roomCode}) غير موجودة حالياً.` });
         }
-    });
-
+    } catch (error) {
+        socket.emit('room_error', { message: "حدث خطأ أثناء الانضمام" });
+    }
+});
     // --- تعريف الهوية في الانتظار (تم توحيدها وتعديلها) ---
     socket.on('identify_player', async (data) => {
         const roomCode = String(data.roomCode).trim();
