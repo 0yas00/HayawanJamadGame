@@ -39,15 +39,14 @@
         .creator-tag { background-color: #ffeaa7; color: #e67e22; border: 1px solid #fab1a0; }
         .member-tag { background-color: #dfe6e9; color: #636e72; border: 1px solid #b2bec3; }
         
-        /* تصميم زر الطرد */
         .kick-btn {
             background-color: #ff7675;
             color: white;
             border: none;
-            padding: 4px 8px;
+            padding: 4px 10px;
             border-radius: 4px;
             cursor: pointer;
-            font-size: 11px;
+            font-size: 12px;
             margin-left: 10px;
             transition: 0.3s;
         }
@@ -73,19 +72,19 @@
             <div id="settings-controls">
                 <div class="setting-item">
                     <label for="rounds-count">عدد الجولات (1-10):</label>
-                    <input type="number" id="rounds-count" value="5" min="1" max="10" style="width: 100%; padding: 8px;">
+                    <input type="number" id="rounds-count" value="5" min="1" max="10" style="width: 100%; padding: 8px; border-radius: 5px; border: 1px solid #ddd;">
                 </div>
                 <div class="setting-item">
                     <label for="round-time">مدة الجولة بالثواني (30-180):</label>
-                    <input type="number" id="round-time" value="90" min="30" max="180" style="width: 100%; padding: 8px;">
+                    <input type="number" id="round-time" value="90" min="30" max="180" style="width: 100%; padding: 8px; border-radius: 5px; border: 1px solid #ddd;">
                 </div>
-                <button class="option-button" onclick="sendSettings()" style="width: 100%;">حفظ الإعدادات</button>
+                <button class="option-button" onclick="sendSettings()" style="width: 100%; background: #2980b9; color: white; padding: 10px; border: none; border-radius: 5px; cursor: pointer;">حفظ الإعدادات</button>
             </div>
-            <p id="settings-message" style="margin-top: 10px; text-align: center; color: #27ae60;"></p>
+            <p id="settings-message" style="margin-top: 10px; text-align: center; color: #27ae60; font-weight: bold;"></p>
         </div>
         
-        <button class="main-play-button" style="margin-top: 30px;" id="start-btn" onclick="startGame()">
-            بدء الجولة
+        <button class="main-play-button" style="margin-top: 30px; width: 100%; padding: 15px; font-size: 18px;" id="start-btn" onclick="startGame()">
+            بدء الجولة الأولى
         </button>
         <p id="wait-message" style="text-align: center; color: #e67e22; margin-top: 15px; font-weight: bold;"></p>
     </div>
@@ -104,16 +103,19 @@
         if (!ROOM_CODE) window.location.href = 'index.html';
         document.getElementById('room-code-display').textContent = ROOM_CODE;
         
-        const socket = io({ transports: ['websocket'] });
+        // الاتصال الموحد
+        const socket = io();
 
         socket.on('connect', () => {
-    // إرسال الكود فور الاتصال
-    socket.emit('identify_player', { roomCode: ROOM_CODE, playerName: playerName });
-});
+            // إرسال الكود فور الاتصال ليقوم السيرفر بسحب البيانات من MongoDB
+            socket.emit('identify_player', { roomCode: ROOM_CODE, playerName: playerName });
+        });
+
         socket.on('room_info', (data) => {
             const list = document.getElementById('player-list');
             list.innerHTML = ''; 
 
+            // التحقق هل المستخدم الحالي هو المنشئ (بناءً على المعرف القادم من السيرفر)
             const currentIsCreator = (data.creatorId === socket.id);
 
             data.players.forEach(p => {
@@ -121,10 +123,11 @@
                 const isCreator = (p.id === data.creatorId);
                 const isMe = (p.id === socket.id);
                 
+                // تحديد التسمية والتاج
                 const roleLabel = isCreator ? 'المنشئ 👑' : 'عضو 👤';
                 const roleClass = isCreator ? 'creator-tag' : 'member-tag';
 
-                // إضافة زر الطرد إذا كان المشاهد هو المنشئ والهدف ليس المنشئ نفسه
+                // منطق زر الطرد (للمنشئ فقط تجاه الأعضاء الآخرين)
                 let kickHtml = "";
                 if (currentIsCreator && !isCreator) {
                     kickHtml = `<button class="kick-btn" onclick="kickPlayer('${p.id}', '${p.name}')">طرد ❌</button>`;
@@ -144,6 +147,7 @@
                 list.appendChild(item);
             });
 
+            // التحكم في ظهور لوحة التحكم وزر البدء
             const startBtn = document.getElementById('start-btn');
             const settingsArea = document.getElementById('settings-area');
             const waitMsg = document.getElementById('wait-message');
@@ -152,8 +156,10 @@
                 settingsArea.style.display = 'block';
                 startBtn.disabled = false;
                 startBtn.style.opacity = "1";
-                startBtn.textContent = "بدء الجولة الأولى";
-                waitMsg.textContent = "أنت المنشئ. يمكنك تعديل الإعدادات أو طرد المتطفلين.";
+                startBtn.textContent = "إبدأ المباراة الآن";
+                waitMsg.textContent = "أنت صاحب الغرفة، اضغط لبدء اللعب.";
+                
+                // تحديث القيم في الحقول
                 document.getElementById('rounds-count').value = data.settings.rounds;
                 document.getElementById('round-time').value = data.settings.time;
             } else {
@@ -161,20 +167,18 @@
                 startBtn.disabled = true;
                 startBtn.style.opacity = "0.6";
                 startBtn.textContent = "في انتظار المنشئ...";
-                waitMsg.textContent = "بانتظار منشئ المجموعة لبدء المباراة.";
+                waitMsg.textContent = "بانتظار صاحب الغرفة لتحديد الإعدادات وبدء اللعب.";
             }
         });
 
-        // دالة طرد اللاعب
         function kickPlayer(targetId, targetName) {
-            if (confirm(`هل أنت متأكد من طرد اللاعب "${targetName}"؟`)) {
+            if (confirm(`هل أنت متأكد من طرد "${targetName}"؟`)) {
                 socket.emit('kick_player', { roomCode: ROOM_CODE, targetId: targetId });
             }
         }
 
-        // استقبال حدث الطرد (للاعب الذي تم طرده)
         socket.on('you_are_kicked', () => {
-            alert("لقد تم طردك من الغرفة من قبل المنشئ.");
+            alert("تم طردك من الغرفة.");
             window.location.href = 'index.html';
         });
 
@@ -182,7 +186,7 @@
             const rounds = document.getElementById('rounds-count').value;
             const time = document.getElementById('round-time').value;
             socket.emit('update_settings', { roomCode: ROOM_CODE, rounds: parseInt(rounds), time: parseInt(time) });
-            document.getElementById('settings-message').textContent = "تم حفظ الإعدادات بنجاح ✅";
+            document.getElementById('settings-message').textContent = "تم الحفظ ✅";
             setTimeout(() => { document.getElementById('settings-message').textContent = ""; }, 2000);
         }
 
@@ -192,6 +196,11 @@
 
         socket.on('game_started', (data) => {
             window.location.href = `game.html?roomCode=${data.roomCode}`;
+        });
+        
+        socket.on('room_error', (data) => {
+            alert(data.message);
+            window.location.href = 'index.html';
         });
     </script>
 </body>

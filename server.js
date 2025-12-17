@@ -49,6 +49,20 @@ const RoomSchema = new mongoose.Schema({
 });
 
 const Room = mongoose.model('Room', RoomSchema);
+
+async function validateWithAI(answers, letter) {
+    const prompt = `أنت حكم في لعبة "إنسان حيوان جماد". الحرف هو "${letter}". 
+    قيم الإجابات التالية وأجب بكلمة "صح" أو "خطأ" فقط لكل فئة بتنسيق JSON:
+    ${JSON.stringify(answers)}. تأكد أن الكلمة تبدأ بالحرف وأنها تنتمي للفئة فعلاً.`;
+
+    try {
+        const response = await axios.post(`https://generativelanguage.googleapis.com/v1beta/models/gemini-pro:generateContent?key=${process.env.ENV_GEMINI_API_KEY}`, {
+            contents: [{ parts: [{ text: prompt }] }]
+        });
+        const text = response.data.candidates[0].content.parts[0].text;
+        return JSON.parse(text.replace(/```json|```/g, ""));
+    } catch (e) { return null; }
+}
 // ---------------------------------------------------------
 // الاتصال بقاعدة البيانات
 mongoose.connect(MONGODB_URI)
@@ -79,6 +93,25 @@ function selectRandomLetter(usedLetters) {
 }
 
 app.use(express.static(path.join(__dirname)));
+
+// دالة التحقق من الإجابات باستخدام Gemini AI
+async function validateAnswersWithAI(answers, letter) {
+    const prompt = `أنت حكم في لعبة "إنسان حيوان جماد". الحرف المطلوب هو "${letter}". 
+    قيم الإجابات التالية بدقة وأجب بكلمة "صح" أو "خطأ" فقط لكل فئة بتنسيق JSON:
+    ${JSON.stringify(answers)}. 
+    شروط الفوز: يجب أن تبدأ الكلمة بحرف "${letter}" وتكون صحيحة لغوياً وفي فئتها.`;
+
+    try {
+        const response = await axios.post(`https://generativelanguage.googleapis.com/v1beta/models/gemini-pro:generateContent?key=${process.env.ENV_GEMINI_API_KEY}`, {
+            contents: [{ parts: [{ text: prompt }] }]
+        });
+        const resultText = response.data.candidates[0].content.parts[0].text;
+        return JSON.parse(resultText.replace(/```json|```/g, "").trim());
+    } catch (error) {
+        console.error("AI Error:", error);
+        return null;
+    }
+}
 
 // ******************************************************
 // ** Socket Events **
@@ -212,34 +245,48 @@ socket.on('create_room_request', async (data) => {
     }
 });
     // --- تعريف الهوية في الانتظار (تم توحيدها وتعديلها) ---
-    socket.on('identify_player', async (data) => {
+ socket.on('identify_player', async (data) => {
+    try {
         const roomCode = String(data.roomCode).trim();
-        const room = activeRooms[roomCode];
+        // 1. البحث عن الغرفة في MongoDB لضمان وجود البيانات
+        const room = await Room.findOne({ roomCode: roomCode });
         
         if (room) {
             const userDb = await User.findOne({ username: data.playerName });
             const wins = userDb ? userDb.wins : 0;
 
-            let player = room.players.find(p => p.id === socket.id);
+            // 2. تحديث معرف السوكت (socket.id) للاعب والبحث عنه في القائمة
+            let player = room.players.find(p => p.name === data.playerName);
+            
+            // تحديد الدور: إذا كان هو من أنشأ الغرفة يأخذ لقب منشئ
+            const role = (socket.id === room.creatorId || room.players.length === 0) ? 'منشئ المجموعة' : 'عضو';
+
             if (!player) {
-                player = { id: socket.id, name: data.playerName, wins: wins, score: 0 };
+                // إضافة لاعب جديد مع دوره
+                player = { id: socket.id, name: data.playerName, role: role, wins: wins, score: 0 };
                 room.players.push(player);
-                
-                io.to(roomCode).emit('system_message', { 
-                    message: `📢 انضم ${data.playerName} إلى الغرفة`,
-                    color: '#27ae60' 
-                });
+            } else {
+                // تحديث الـ ID فقط إذا كان اللاعب موجوداً مسبقاً (عند عمل ريفرش)
+                player.id = socket.id;
             }
 
+            // 3. حفظ التعديلات في قاعدة البيانات
+            await Room.updateOne({ roomCode: roomCode }, { players: room.players });
+            socket.join(roomCode);
+
+            // 4. إرسال الحدث السحري لظهور الأسماء فوراً
             io.to(roomCode).emit('room_info', { 
                 players: room.players, 
                 creatorId: room.creatorId, 
                 settings: room.settings 
             });
-        } else {
-            socket.emit('room_error', { message: "عذراً، الغرفة غير موجودة أو انتهت صلاحيتها." });
+
+            console.log(`✅ اللاعب ${data.playerName} (${role}) متواجد الآن في الغرفة ${roomCode}`);
         }
-    });
+    } catch (error) {
+        console.error("❌ خطأ في identify_player:", error);
+    }
+});
 
     // --- طرد لاعب ---
     socket.on('kick_player', (data) => {
@@ -289,12 +336,46 @@ socket.on('create_room_request', async (data) => {
         }
     });
 
-    socket.on('start_game', (data) => {
-        const room = activeRooms[data.roomCode];
+socket.on('start_game', async (data) => {
+    try {
+        const room = await Room.findOne({ roomCode: data.roomCode });
         if (room && room.creatorId === socket.id) {
-            io.to(data.roomCode).emit('game_started', { roomCode: data.roomCode, settings: room.settings });
+            
+            // بدلاً من بدء اللعبة فوراً، نرسل عد تنازلي للجميع
+            let count = 3;
+            const countdownInterval = setInterval(async () => {
+                // إرسال الرقم الحالي (3، 2، 1) لكل من في الغرفة
+                io.to(data.roomCode).emit('pre_game_countdown', count);
+                
+                if (count === 0) {
+                    clearInterval(countdownInterval);
+                    
+                    // الآن تبدأ اللعبة فعلياً بعد انتهاء العد
+                    const nextLetter = selectRandomLetter(room.usedLetters);
+                    if (nextLetter) {
+                        room.currentLetter = nextLetter;
+                        room.usedLetters.push(nextLetter);
+                        room.settings.currentRound += 1;
+                        
+                        await Room.updateOne({ roomCode: data.roomCode }, { 
+                            currentLetter: room.currentLetter,
+                            usedLetters: room.usedLetters,
+                            settings: room.settings
+                        });
+
+                        // إرسال إشارة البدء النهائية مع الحرف المختار
+                        io.to(data.roomCode).emit('game_actually_started', { 
+                            letter: nextLetter, 
+                            time: room.settings.time,
+                            round: room.settings.currentRound
+                        });
+                    }
+                }
+                count--;
+            }, 1000); // يتكرر كل ثانية واحدة
         }
-    });
+    } catch (error) { console.log("خطأ في بدء اللعبة:", error); }
+});
 });
 
 server.listen(PORT, () => {
