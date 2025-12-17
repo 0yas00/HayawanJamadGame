@@ -20,12 +20,13 @@ const io = new Server(server, {
 
 const PORT = process.env.PORT || 3000;
 
-// مفاتيح المصادقة وقاعدة البيانات
+// إعدادات البيئة
 const GOOGLE_CLIENT_ID = process.env.GOOGLE_CLIENT_ID || "150394320903-79ve7o5v80r87l4ko8807hq3erjlprc3.apps.googleusercontent.com"; 
 const MONGODB_URI = process.env.MONGODB_URI; 
 const client = new OAuth2Client(GOOGLE_CLIENT_ID);
 const GEMINI_API_KEY = process.env.ENV_GEMINI_API_KEY; 
 
+// تعريف Schema المستخدم
 const UserSchema = new mongoose.Schema({
     googleId: { type: String, unique: true, sparse: true },
     email: { type: String, unique: true, sparse: true },
@@ -37,10 +38,12 @@ const UserSchema = new mongoose.Schema({
 
 const User = mongoose.model('User', UserSchema);
 
+// الاتصال بقاعدة البيانات
 mongoose.connect(MONGODB_URI)
     .then(() => console.log("✅ متصل بقاعدة بيانات MongoDB"))
     .catch(err => console.error("❌ فشل الاتصال بقاعدة بيانات MongoDB:", err));
 
+// دالة التحقق من توكن جوجل
 async function verifyGoogleToken(token) {
     try {
         const ticket = await client.verifyIdToken({
@@ -48,9 +51,7 @@ async function verifyGoogleToken(token) {
             audience: GOOGLE_CLIENT_ID,
         });
         return ticket.getPayload();
-    } catch (error) {
-        return null;
-    }
+    } catch (error) { return null; }
 }
 
 const activeRooms = {}; 
@@ -65,30 +66,15 @@ function selectRandomLetter(usedLetters) {
     return remainingLetters.length === 0 ? null : remainingLetters[Math.floor(Math.random() * remainingLetters.length)];
 }
 
-async function checkAnswersWithAI(letter, answers) {
-    const prompt = `أنت محكّم خبير للعبة حيوان جماد نبات. الحرف: ${letter}. قيم الإجابات: ${JSON.stringify(answers)}. أجب بـ (حيوان: صحيح/خطأ) لكل فئة.`;
-    try {
-        const response = await axios.post(`https://generativelanguage.googleapis.com/v1beta/models/gemini-pro:generateContent?key=${GEMINI_API_KEY}`, {
-            contents: [{ parts: [{ text: prompt }] }],
-        }, { timeout: 8000 });
-        const aiText = response.data.candidates[0].content.parts[0].text;
-        const results = {};
-        let isValid = aiText.includes('صحيح');
-        return { evaluation: results, success: isValid };
-    } catch (error) {
-        return { evaluation: {}, success: false, error: true }; 
-    }
-}
-
 app.use(express.static(path.join(__dirname)));
 
 // ******************************************************
-// ** بداية نطاق الاتصال - Socket Events **
+// ** Socket Events **
 // ******************************************************
 io.on('connection', (socket) => {
     console.log(`👤 لاعب متصل: ${socket.id}`);
 
-    // المصادقة عبر جوجل
+    // --- تسجيل الدخول (جوجل) ---
     socket.on('google_login', async (data) => {
         const payload = await verifyGoogleToken(data.token);
         if (!payload) return socket.emit('auth_error', { message: 'رمز غير صالح' });
@@ -102,7 +88,7 @@ io.on('connection', (socket) => {
         } catch (error) { socket.emit('auth_error', { message: 'خطأ قاعدة بيانات' }); }
     });
 
-    // إنشاء حساب يدوي
+    // --- إنشاء حساب يدوي ---
     socket.on('register_request', async (data) => {
         try {
             const { email, password, username } = data;
@@ -115,7 +101,7 @@ io.on('connection', (socket) => {
         } catch (error) { socket.emit('auth_error', { message: 'فشل الإنشاء' }); }
     });
 
-    // تسجيل دخول يدوي
+    // --- تسجيل دخول يدوي ---
     socket.on('login_request', async (data) => {
         try {
             const user = await User.findOne({ email: data.email });
@@ -126,13 +112,18 @@ io.on('connection', (socket) => {
         } catch (error) { socket.emit('auth_error', { message: 'فشل الدخول' }); }
     });
 
-    // إنشاء غرفة
-    socket.on('create_room_request', (data) => {
+    // --- إنشاء غرفة ---
+    socket.on('create_room_request', async (data) => {
         let roomCode = generateRoomCode();
         const initialLetter = selectRandomLetter([]);
+        
+        // جلب انتصارات المنشئ من القاعدة
+        const userDb = await User.findOne({ username: data.playerName });
+        const wins = userDb ? userDb.wins : 0;
+
         socket.join(roomCode);
         activeRooms[roomCode] = { 
-            players: [{ id: socket.id, name: data.playerName, wins: 0, score: 0 }],
+            players: [{ id: socket.id, name: data.playerName, wins: wins, score: 0 }],
             currentLetter: initialLetter, 
             usedLetters: [initialLetter],
             creatorId: socket.id,
@@ -141,32 +132,62 @@ io.on('connection', (socket) => {
         socket.emit('room_created', { roomCode });
     });
 
-    // الانضمام لغرفة
-    socket.on('join_room_request', (data) => {
+    // --- الانضمام لغرفة (تعديل لضمان التحديث الجماعي) ---
+    socket.on('join_room_request', async (data) => {
         const room = activeRooms[data.roomCode];
         if (room) {
+            const userDb = await User.findOne({ username: data.playerName });
+            const wins = userDb ? userDb.wins : 0;
+
             socket.join(data.roomCode);
-            room.players.push({ id: socket.id, name: data.playerName, wins: 0, score: 0 });
+            
+            // التأكد من عدم تكرار اللاعب
+            if (!room.players.find(p => p.id === socket.id)) {
+                room.players.push({ id: socket.id, name: data.playerName, wins: wins, score: 0 });
+            }
+
             socket.emit('room_joined', { roomCode: data.roomCode });
-            io.to(data.roomCode).emit('room_info', { players: room.players, creatorId: room.creatorId, settings: room.settings });
+            
+            // إرسال تحديث لكل الغرفة بما في ذلك المنضم الجديد
+            io.to(data.roomCode).emit('room_info', { 
+                players: room.players, 
+                creatorId: room.creatorId, 
+                settings: room.settings 
+            });
+        } else {
+            socket.emit('room_error', { message: 'الغرفة غير موجودة' });
         }
     });
 
-    // تعريف هوية اللاعب في الانتظار
+    // --- تعريف الهوية في الانتظار (تعديل جوهري) ---
     socket.on('identify_player', async (data) => {
         const room = activeRooms[data.roomCode];
         if (room) {
             const userDb = await User.findOne({ username: data.playerName });
+            const wins = userDb ? userDb.wins : 0;
+
             let player = room.players.find(p => p.id === socket.id);
             if (!player) {
-                player = { id: socket.id, name: data.playerName, wins: userDb ? userDb.wins : 0, score: 0 };
+                player = { id: socket.id, name: data.playerName, wins: wins, score: 0 };
                 room.players.push(player);
+                
+                // إرسال رسالة ترحيب للجميع في الغرفة
+                io.to(data.roomCode).emit('system_message', { 
+                    message: `📢 انضم ${data.playerName} إلى الغرفة`,
+                    color: '#27ae60' 
+                });
             }
-            io.to(data.roomCode).emit('room_info', { players: room.players, creatorId: room.creatorId, settings: room.settings });
+
+            // تحديث القائمة عند الجميع فوراً لتمويه "جاري التحميل"
+            io.to(data.roomCode).emit('room_info', { 
+                players: room.players, 
+                creatorId: room.creatorId, 
+                settings: room.settings 
+            });
         }
     });
 
-    // طرد لاعب
+    // --- طرد لاعب ---
     socket.on('kick_player', (data) => {
         const room = activeRooms[data.roomCode];
         if (room && room.creatorId === socket.id) {
@@ -176,32 +197,35 @@ io.on('connection', (socket) => {
         }
     });
 
-    // فوز لاعب وتحديث السجل
+    // --- تحديث الفوز ---
     socket.on('update_winner_score', async (data) => {
         try {
             await User.findOneAndUpdate({ username: data.playerName }, { $inc: { wins: 1 } });
-            console.log(`🏆 فوز جديد للاعب: ${data.playerName}`);
         } catch (e) { console.log("خطأ تحديث فوز"); }
     });
 
-    // الخروج والـ Disconnect
+    // --- الخروج (Disconnect) ---
     socket.on('disconnect', () => {
         for (const roomCode in activeRooms) {
             const room = activeRooms[roomCode];
             const pIdx = room.players.findIndex(p => p.id === socket.id);
             if (pIdx !== -1) {
+                const pName = room.players[pIdx].name;
                 room.players.splice(pIdx, 1);
-                if (room.players.length === 0) delete activeRooms[roomCode];
-                else {
+                
+                if (room.players.length === 0) {
+                    delete activeRooms[roomCode];
+                } else {
                     if (socket.id === room.creatorId) room.creatorId = room.players[0].id;
                     io.to(roomCode).emit('room_info', { players: room.players, creatorId: room.creatorId, settings: room.settings });
+                    io.to(roomCode).emit('system_message', { message: `🚪 غادر ${pName} الغرفة`, color: '#e74c3c' });
                 }
                 break;
             }
         }
     });
 
-    // استكمال باقي الأحداث (Settings, Start Game, Stop Game) داخل هذا النطاق...
+    // --- إعدادات المباراة وبدء اللعب ---
     socket.on('update_settings', (data) => {
         const room = activeRooms[data.roomCode];
         if (room && room.creatorId === socket.id) {
@@ -217,9 +241,8 @@ io.on('connection', (socket) => {
             io.to(data.roomCode).emit('game_started', { roomCode: data.roomCode, settings: room.settings });
         }
     });
-
-}); // نهاية قوس الاتصال io.on
+});
 
 server.listen(PORT, () => {
-    console.log(`✅ الخادم يعمل على: http://localhost:${PORT}`);
+    console.log(`✅ الخادم يعمل بنجاح على المنفذ: ${PORT}`);
 });
