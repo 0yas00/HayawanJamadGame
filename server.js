@@ -133,29 +133,33 @@ io.on('connection', (socket) => {
     });
 
     // --- الانضمام لغرفة (تعديل لضمان التحديث الجماعي) ---
-    socket.on('join_room_request', async (data) => {
-        const room = activeRooms[data.roomCode];
+   socket.on('join_room_request', async (data) => {
+        // تحويل الكود لنص وحذف الفراغات الزائدة لمنع الأخطاء
+        const roomCode = String(data.roomCode).trim(); 
+        const room = activeRooms[roomCode];
+        
         if (room) {
             const userDb = await User.findOne({ username: data.playerName });
             const wins = userDb ? userDb.wins : 0;
 
-            socket.join(data.roomCode);
+            socket.join(roomCode);
             
-            // التأكد من عدم تكرار اللاعب
             if (!room.players.find(p => p.id === socket.id)) {
                 room.players.push({ id: socket.id, name: data.playerName, wins: wins, score: 0 });
             }
 
-            socket.emit('room_joined', { roomCode: data.roomCode });
+            socket.emit('room_joined', { roomCode: roomCode });
             
-            // إرسال تحديث لكل الغرفة بما في ذلك المنضم الجديد
-            io.to(data.roomCode).emit('room_info', { 
+            // إرسال التحديث للجميع لضمان اختفاء رسالة "جاري التحميل"
+            io.to(roomCode).emit('room_info', { 
                 players: room.players, 
                 creatorId: room.creatorId, 
                 settings: room.settings 
             });
         } else {
-            socket.emit('room_error', { message: 'الغرفة غير موجودة' });
+            // سجل في التيرمنل لمعرفة الكود الذي فشل
+            console.log(`❌ محاولة انضمام فاشلة لكود: ${roomCode}`);
+            socket.emit('room_error', { message: 'رقم الغرفة غير صحيح أو انتهت صلاحيتها.' });
         }
     });
 
