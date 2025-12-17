@@ -204,29 +204,13 @@ socket.on('join_room_request', async (data) => {
         }
     });
 
-    // --- تعريف الهوية في الانتظار ---
+    // --- تعريف الهوية في الانتظار (تعديل جوهري) ---
+   // --- تعريف الهوية في الانتظار (النسخة النهائية الموحدة) ---
     socket.on('identify_player', async (data) => {
+        // تحويل الكود لنص وحذف المسافات لضمان المطابقة
         const roomCode = String(data.roomCode).trim();
         const room = activeRooms[roomCode];
-        if (room) {
-            const userDb = await User.findOne({ username: data.playerName });
-            const wins = userDb ? userDb.wins : 0;
-
-            let player = room.players.find(p => p.id === socket.id);
-            if (!player) {
-                player = { id: socket.id, name: data.playerName, wins: wins, score: 0 };
-                room.players.push(player);
-            }
-            io.to(roomCode).emit('room_info', { 
-                players: room.players, 
-                creatorId: room.creatorId, 
-                settings: room.settings 
-            });
-        }
-    });
-    // --- تعريف الهوية في الانتظار (تعديل جوهري) ---
-    socket.on('identify_player', async (data) => {
-        const room = activeRooms[data.roomCode];
+        
         if (room) {
             const userDb = await User.findOne({ username: data.playerName });
             const wins = userDb ? userDb.wins : 0;
@@ -237,18 +221,21 @@ socket.on('join_room_request', async (data) => {
                 room.players.push(player);
                 
                 // إرسال رسالة ترحيب للجميع في الغرفة
-                io.to(data.roomCode).emit('system_message', { 
+                io.to(roomCode).emit('system_message', { 
                     message: `📢 انضم ${data.playerName} إلى الغرفة`,
                     color: '#27ae60' 
                 });
             }
 
-            // تحديث القائمة عند الجميع فوراً لتمويه "جاري التحميل"
-            io.to(data.roomCode).emit('room_info', { 
+            // تحديث القائمة فوراً عند الجميع لتمويه "جاري التحميل"
+            io.to(roomCode).emit('room_info', { 
                 players: room.players, 
                 creatorId: room.creatorId, 
                 settings: room.settings 
             });
+        } else {
+            // في حال فشل السيرفر في إيجاد الغرفة
+            socket.emit('room_error', { message: "عذراً، الغرفة غير موجودة أو انتهت صلاحيتها." });
         }
     });
 
