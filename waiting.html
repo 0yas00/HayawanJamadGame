@@ -107,9 +107,9 @@
         const socket = io({ transports: ['websocket'] });
 
         socket.on('connect', () => {
-            socket.emit('identify_player', { roomCode: ROOM_CODE, playerName: playerName });
-        });
-
+    // إرسال الكود فور الاتصال
+    socket.emit('identify_player', { roomCode: ROOM_CODE, playerName: playerName });
+});
         socket.on('room_info', (data) => {
             const list = document.getElementById('player-list');
             list.innerHTML = ''; 
