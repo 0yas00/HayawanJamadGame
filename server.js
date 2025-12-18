@@ -525,6 +525,23 @@ socket.on("start_game", async (data) => {
           });
           return;
         }
+// ✅ 1) ثبّت حالة اللعبة في قاعدة البيانات
+room.gameStopped = false;
+room.gameState = "playing";
+
+// ✅ 2) خزّن الحرف الحالي (عشان كل اللاعبين يجيبونه نفس الشي)
+room.currentLetter = nextLetter;
+
+// ✅ 3) خزّن الحرف ضمن الحروف المستخدمة (عشان ما يتكرر)
+room.usedLetters = room.usedLetters || [];
+room.usedLetters.push(nextLetter);
+
+// ✅ 4) صفّر بيانات الجولة (عشان ما تبقى بيانات قديمة)
+room.roundSubmissions = {};  // اختياري لو عندك نظام تخزين إجابات
+room.settings.currentRound = (room.settings.currentRound || 0) + 1;
+
+// ✅ 5) احفظ التغييرات
+await room.save();
 
         // ✅ المهم جدًا
         room.currentLetter = nextLetter;
@@ -532,6 +549,14 @@ socket.on("start_game", async (data) => {
         room.settings.currentRound += 1;
 
         await room.save();
+         // بعد await room.save();
+
+io.to(roomCode).emit("game_actually_started", {
+  roomCode: roomCode,
+  letter: nextLetter,
+  time: room.settings.time
+});
+
 
         // ✅ إرسال بدء الجولة الفعلي
         io.to(roomCode).emit("game_actually_started", {
@@ -598,6 +623,8 @@ socket.on("stop_game_request", async (data) => {
     room.gameStopped = true;
     room.gameState = "waiting";
     await room.save();
+
+    
 
     io.to(roomCode).emit("player_won_match", { winner: playerName });
 

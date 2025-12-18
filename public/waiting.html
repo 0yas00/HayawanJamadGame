@@ -82,7 +82,12 @@ function startGame() {
 
 // 👇 الجميع ينتقل تلقائيًا
 socket.on("game_actually_started", () => {
-  window.location.href = `game.html?roomCode=${ROOM_CODE}`;
+ function startGame() {
+  socket.emit("start_game", {
+    roomCode: ROOM_CODE,
+    playerName: playerName
+  });
+}
 });
 
 socket.on("room_error", d => {
