@@ -537,53 +537,69 @@ socket.on("start_game", async (data) => {
   }
 });
 
-  socket.on("stop_game_request", async (data) => {
-    try {
-      const roomCode = String(data.roomCode || "").trim();
-      const playerName = String(data.playerName || "").trim();
-      const answers = data.answers || {};
-      const currentLetter = String(data.currentLetter || "").trim();
+socket.on("stop_game_request", async (data) => {
+  try {
+    const roomCode = String(data.roomCode || "").trim();
+    const playerName = String(data.playerName || "").trim();
+    const answers = data.answers || {};
+    const currentLetter = String(data.currentLetter || "").trim();
 
-      const room = await Room.findOne({ roomCode });
-      if (!room) return socket.emit("stop_failed", { message: "الغرفة غير موجودة" });
-
-      cancelPendingDeletion(roomCode);
-
-      if (room.gameStopped) {
-        return socket.emit("stop_failed", { message: "تم إيقاف الجولة بالفعل!" });
-      }
-
-      if (room.currentLetter && currentLetter && room.currentLetter !== currentLetter) {
-        return socket.emit("stop_failed", { message: "حرف الجولة غير مطابق!" });
-      }
-
-      room.gameStopped = true;
-      room.gameState = "waiting";
-      await room.save();
-
-      const result = await validateAnswersWithAI(answers, room.currentLetter || currentLetter);
-
-      if (!result) {
-        io.to(roomCode).emit("ai_correction", {
-          حيوان: "خطأ",
-          جماد: "خطأ",
-          نبات: "خطأ",
-          بلاد: "خطأ",
-          اسم: "خطأ",
-        });
-        io.to(roomCode).emit("player_won_match", { winner: playerName });
-        return;
-      }
-
-      io.to(roomCode).emit("ai_correction", result);
-      io.to(roomCode).emit("player_won_match", { winner: playerName });
-
-      await User.findOneAndUpdate({ username: playerName }, { $inc: { wins: 1 } });
-    } catch (e) {
-      console.error("❌ stop_game_request:", e);
-      socket.emit("stop_failed", { message: "حدث خطأ أثناء التحقق" });
+    const room = await Room.findOne({ roomCode });
+    if (!room) {
+      return socket.emit("stop_failed", { message: "❌ الغرفة غير موجودة" });
     }
-  });
+
+    // لا توقف الجولة إلا إذا فيه لعبة شغالة
+    if (room.gameState !== "playing") {
+      return socket.emit("stop_failed", { message: "⛔ لا توجد جولة نشطة" });
+    }
+
+    // تحقق من الحرف
+    if (room.currentLetter !== currentLetter) {
+      return socket.emit("stop_failed", { message: "❌ حرف الجولة غير مطابق" });
+    }
+
+    // شغّل الذكاء الاصطناعي
+    const result = await validateAnswersWithAI(answers, room.currentLetter);
+
+    if (!result) {
+      return socket.emit("stop_failed", {
+        message: "⚠️ فشل التحقق من الإجابات، حاول مرة أخرى",
+      });
+    }
+
+    // احسب عدد الصح
+    const allCorrect = Object.values(result).every(v => v === "صح");
+
+    // أرسل التصحيح دائمًا
+    socket.emit("ai_correction", result);
+
+    // ❌ إذا فيه خطأ → لا فوز
+    if (!allCorrect) {
+      return socket.emit("stop_failed", {
+        message: "❌ إجاباتك غير كاملة أو خاطئة، عدّلها وحاول مرة أخرى",
+      });
+    }
+
+    // ✅ هنا فقط الفائز
+    room.gameStopped = true;
+    room.gameState = "waiting";
+    await room.save();
+
+    io.to(roomCode).emit("player_won_match", { winner: playerName });
+
+    await User.findOneAndUpdate(
+      { username: playerName },
+      { $inc: { wins: 1 } }
+    );
+
+    console.log(`🏆 الفائز: ${playerName} في الغرفة ${roomCode}`);
+  } catch (err) {
+    console.error("❌ stop_game_request:", err);
+    socket.emit("stop_failed", { message: "حدث خطأ غير متوقع" });
+  }
+});
+
 
   // ---------- Disconnect (FIXED) ----------
   socket.on("disconnect", async () => {

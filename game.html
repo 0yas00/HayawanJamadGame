@@ -14,212 +14,149 @@
     .answer-grid { display:grid; grid-template-columns:repeat(2, 1fr); gap:20px; margin-bottom:30px; }
     .answer-box { background-color:#ecf0f1; padding:15px; border-radius:8px; position:relative; }
     .answer-box label { display:block; font-weight:bold; margin-bottom:8px; color:#2980b9; font-size:18px; }
-    .answer-box input { width:100%; padding:10px; border:1px solid #bdc3c7; border-radius:5px; box-sizing:border-box; text-align:right; }
+    .answer-box input { width:100%; padding:10px; border:1px solid #bdc3c7; border-radius:5px; text-align:right; }
     .feedback-icon { position:absolute; top:15px; left:15px; font-size:20px; display:none; }
 
-    #stop-btn { background-color:#f39c12; color:white; border:none; padding:15px 30px; border-radius:8px; cursor:pointer; font-size:22px; width:100%; }
-    #system-message { margin-top:20px; padding:15px; border-radius:8px; display:none; text-align:center; font-weight:bold; font-size:1.2em; }
+    #stop-btn { background-color:#f39c12; color:white; border:none; padding:15px; border-radius:8px; font-size:22px; width:100%; cursor:pointer; }
+    #system-message { margin-top:20px; padding:15px; border-radius:8px; display:none; text-align:center; font-weight:bold; }
 
     #pre-game-overlay {
-      position:fixed; top:0; left:0; width:100%; height:100%;
-      background:rgba(0,0,0,0.9); color:white; display:none;
-      flex-direction:column; align-items:center; justify-content:center;
-      font-size:120px; font-weight:bold; z-index:9999;
+      position:fixed; inset:0;
+      background:rgba(0,0,0,0.9); color:white;
+      display:none; flex-direction:column;
+      align-items:center; justify-content:center;
+      font-size:120px; z-index:9999;
     }
   </style>
 </head>
 
 <body>
-  <div id="pre-game-overlay">
-    <div id="countdown-number">3</div>
-    <div style="font-size:30px; margin-top:20px;">استعد...</div>
+
+<div id="pre-game-overlay">
+  <div id="countdown-number">3</div>
+  <div style="font-size:30px;">استعد...</div>
+</div>
+
+<div class="lobby-container">
+  <div id="system-message"></div>
+
+  <div class="game-header">
+    <div>
+      <div>الحرف المخصص:</div>
+      <div class="challenge-letter" id="current-letter">?</div>
+    </div>
+    <div id="timer">00:00</div>
   </div>
 
-  <div class="lobby-container">
-    <div id="system-message"></div>
-
-    <div class="game-header">
-      <div>
-        <div style="font-size:20px; color:#7f8c8d;">الحرف المخصص:</div>
-        <div class="challenge-letter" id="current-letter">?</div>
-      </div>
-      <div id="timer">00:00</div>
-    </div>
-
-    <div class="answer-grid">
-      <div class="answer-box">
-        <label>حيوان: <span id="mark-حيوان" class="feedback-icon"></span></label>
-        <input type="text" id="حيوان" placeholder="أدخل حيوان">
-      </div>
-      <div class="answer-box">
-        <label>جماد: <span id="mark-جماد" class="feedback-icon"></span></label>
-        <input type="text" id="جماد" placeholder="أدخل جماد">
-      </div>
-      <div class="answer-box">
-        <label>نبات: <span id="mark-نبات" class="feedback-icon"></span></label>
-        <input type="text" id="نبات" placeholder="أدخل نبات">
-      </div>
-      <div class="answer-box">
-        <label>بلاد: <span id="mark-بلاد" class="feedback-icon"></span></label>
-        <input type="text" id="بلاد" placeholder="أدخل بلاد">
-      </div>
-      <div class="answer-box" style="grid-column: span 2; max-width:50%; margin:0 auto;">
-        <label>اسم: <span id="mark-اسم" class="feedback-icon"></span></label>
-        <input type="text" id="اسم" placeholder="أدخل اسم">
-      </div>
-    </div>
-
-    <button id="stop-btn" onclick="handleStopGame()">توقف</button>
+  <div class="answer-grid">
+    <div class="answer-box"><label>حيوان <span id="mark-حيوان" class="feedback-icon"></span></label><input id="حيوان"></div>
+    <div class="answer-box"><label>جماد <span id="mark-جماد" class="feedback-icon"></span></label><input id="جماد"></div>
+    <div class="answer-box"><label>نبات <span id="mark-نبات" class="feedback-icon"></span></label><input id="نبات"></div>
+    <div class="answer-box"><label>بلاد <span id="mark-بلاد" class="feedback-icon"></span></label><input id="بلاد"></div>
+    <div class="answer-box" style="grid-column:span 2"><label>اسم <span id="mark-اسم" class="feedback-icon"></span></label><input id="اسم"></div>
   </div>
 
-  <script>
-    const socket = io();
-    const urlParams = new URLSearchParams(window.location.search);
-    const ROOM_CODE = urlParams.get('roomCode');
-    const playerName = localStorage.getItem('gameUsername') || '';
+  <button id="stop-btn" onclick="handleStop()">توقف</button>
+</div>
 
-    if (!playerName || !ROOM_CODE) {
-      window.location.href = 'index.html';
-    }
+<script>
+const socket = io();
+const ROOM_CODE = new URLSearchParams(location.search).get("roomCode");
+const playerName = localStorage.getItem("gameUsername");
+const isCreator = localStorage.getItem("isCreator") === "true";
 
-    let timerInterval;
-    let timeRemaining = 0;
-    let gameRunning = false;
-    let currentLetter = '';
+if (!ROOM_CODE || !playerName) location.href = "index.html";
 
-    function toggleInputs(disabled) {
-      document.querySelectorAll('.answer-grid input').forEach(input => input.disabled = disabled);
-    }
+let timeRemaining = 0;
+let timerInterval;
+let gameRunning = false;
+let currentLetter = "";
 
-    function displaySystemMessage(message, color) {
-      const sysMsg = document.getElementById('system-message');
-      sysMsg.innerHTML = message;
-      sysMsg.style.backgroundColor = color;
-      sysMsg.style.display = 'block';
-    }
+function toggleInputs(disabled) {
+  document.querySelectorAll("input").forEach(i => i.disabled = disabled);
+}
 
-   socket.on('connect', () => {
-  socket.emit('identify_player', {
-    roomCode: ROOM_CODE,
-    playerName: playerName
-  });
+function msg(text, color="#2980b9") {
+  const m = document.getElementById("system-message");
+  m.textContent = text;
+  m.style.background = color;
+  m.style.display = "block";
+}
 
-  // ⭐️ اطلب بدء اللعبة من هنا (بعد الدخول للغرفة)
-  socket.emit('start_game', {
-    roomCode: ROOM_CODE,
-    playerName: playerName
-  });
+socket.on("connect", () => {
+  socket.emit("identify_player", { roomCode: ROOM_CODE, playerName });
+
+  if (isCreator) {
+    socket.emit("start_game", { roomCode: ROOM_CODE, playerName });
+  }
 });
 
-    // العد التنازلي
-    socket.on('pre_game_countdown', (count) => {
-      const overlay = document.getElementById('pre-game-overlay');
-      const num = document.getElementById('countdown-number');
-      overlay.style.display = 'flex';
-      num.textContent = count === 0 ? "ابدأ!" : count;
-    });
+socket.on("pre_game_countdown", n => {
+  document.getElementById("pre-game-overlay").style.display = "flex";
+  document.getElementById("countdown-number").textContent = n === 0 ? "ابدأ!" : n;
+});
 
-    // بداية الجولة
-    socket.on('game_actually_started', (data) => {
-      setTimeout(() => {
-        document.getElementById('pre-game-overlay').style.display = 'none';
-      }, 1000);
+socket.on("game_actually_started", data => {
+  document.getElementById("pre-game-overlay").style.display = "none";
+  currentLetter = data.letter;
+  timeRemaining = data.time;
+  document.getElementById("current-letter").textContent = currentLetter;
+  gameRunning = true;
+  toggleInputs(false);
+  startTimer();
+});
 
-      currentLetter = data.letter;
-      document.getElementById('current-letter').textContent = currentLetter;
-
-      timeRemaining = data.time;
-      gameRunning = true;
-
-      toggleInputs(false);
-      startTimer();
-    });
-
-    function startTimer() {
-      clearInterval(timerInterval);
-
-      timerInterval = setInterval(() => {
-        if (timeRemaining > 0 && gameRunning) {
-          timeRemaining--;
-          const minutes = Math.floor(timeRemaining / 60);
-          const seconds = timeRemaining % 60;
-          document.getElementById('timer').textContent =
-            `${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
-        } else if (timeRemaining <= 0 && gameRunning) {
-          clearInterval(timerInterval);
-          handleStopGame(true);
-        }
-      }, 1000);
+function startTimer() {
+  clearInterval(timerInterval);
+  timerInterval = setInterval(() => {
+    if (!gameRunning) return;
+    if (timeRemaining <= 0) {
+      handleStop(true);
+      return;
     }
+    timeRemaining--;
+    document.getElementById("timer").textContent =
+      `00:${String(timeRemaining).padStart(2,"0")}`;
+  }, 1000);
+}
 
-    // تصحيح AI
-    socket.on('ai_correction', (results) => {
-      for (const [category, status] of Object.entries(results)) {
-        const mark = document.getElementById(`mark-${category}`);
-        if (mark) {
-          mark.textContent = status === "صح" ? "✅" : "❌";
-          mark.style.color = status === "صح" ? "#27ae60" : "#e74c3c";
-          mark.style.display = 'inline';
-        }
-      }
-    });
-
-    // إعلان الفائز
-    socket.on('player_won_match', (data) => {
-      gameRunning = false;
-      clearInterval(timerInterval);
-      toggleInputs(true);
-      document.getElementById('stop-btn').disabled = true;
-
-      const msg = (data.winner === playerName)
-        ? `🎉 مبروك! أنت الفائز`
-        : `🏆 الفائز هو: ${data.winner}`;
-
-      displaySystemMessage(msg, data.winner === playerName ? '#27ae60' : '#c0392b');
-    });
-
-    function collectAnswers() {
-      return {
-        حيوان: document.getElementById('حيوان').value.trim(),
-        جماد: document.getElementById('جماد').value.trim(),
-        نبات: document.getElementById('نبات').value.trim(),
-        بلاد: document.getElementById('بلاد').value.trim(),
-        اسم: document.getElementById('اسم').value.trim(),
-      };
+function handleStop(auto=false) {
+  if (!gameRunning && !auto) return;
+  socket.emit("stop_game_request", {
+    roomCode: ROOM_CODE,
+    playerName,
+    currentLetter,
+    answers: {
+      حيوان: حيوان.value,
+      جماد: جماد.value,
+      نبات: نبات.value,
+      بلاد: بلاد.value,
+      اسم: اسم.value
     }
+  });
+  msg("⏳ جاري التحقق...");
+}
 
-    function handleStopGame(isAuto = false) {
-      if (!gameRunning && !isAuto) return;
+socket.on("stop_failed", d => {
+  msg(d.message, "#f39c12");
+  gameRunning = true;        // 👈 يسمح بالمحاولة مرة ثانية
+});
 
-      gameRunning = false;
-      document.getElementById('stop-btn').disabled = true;
+socket.on("player_won_match", d => {
+  gameRunning = false;
+  toggleInputs(true);
+  msg(d.winner === playerName ? "🎉 فزت!" : `🏆 الفائز: ${d.winner}`, "#27ae60");
+});
 
-      socket.emit('stop_game_request', {
-        roomCode: ROOM_CODE,
-        playerName: playerName,
-        answers: collectAnswers(),
-        currentLetter: currentLetter
-      });
+socket.on("ai_correction", r => {
+  for (const k in r) {
+    const el = document.getElementById("mark-" + k);
+    el.textContent = r[k] === "صح" ? "✅" : "❌";
+    el.style.display = "inline";
+  }
+});
 
-      displaySystemMessage(
-        isAuto ? "⏳ انتهى الوقت… جاري التحقق!" : "⏳ جاري التحقق من إجاباتك...",
-        '#2980b9'
-      );
-    }
-
-    socket.on('stop_failed', (data) => {
-      document.getElementById('stop-btn').disabled = false;
-      gameRunning = true;
-      displaySystemMessage(data.message, '#f39c12');
-    });
-
-    socket.on('room_error', (data) => {
-      alert(data.message);
-      window.location.href = 'index.html';
-    });
-
-    // قبل البداية
-    toggleInputs(true);
-  </script>
+toggleInputs(true);
+</script>
 </body>
 </html>
