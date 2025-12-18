@@ -195,10 +195,13 @@
       setTimeout(() => { document.getElementById('settings-message').textContent = ""; }, 2000);
     }
 
-    function startGame() {
-      // مهم: نرسل playerName لأن السيرفر يتحقق من المنشئ
-      socket.emit('start_game', { roomCode: ROOM_CODE, playerName: playerName });
-    }
+  function startGame() {
+  const playerName = localStorage.getItem('gameUsername');
+  socket.emit('start_game', {
+    roomCode: ROOM_CODE,
+    playerName: playerName
+  });
+}
 
     socket.on('pre_game_countdown', (count) => {
       // تحديث زر البدء للجميع (مفيد)
