@@ -196,13 +196,27 @@ io.on('connection', (socket) => {
             socket.emit('auth_error', { message: 'حدث خطأ أثناء حفظ الاسم' }); 
         }
     });
+// ابحث عن هذا الحدث (غالباً يكون قبل السطر 200)
+socket.on('create_room_request', async (data) => {
+    try {
+        let roomCode = generateRoomCode(); // تعريف المتغير أولاً
+        
+        const newRoom = new Room({
+            roomCode: roomCode,
+            creatorName: data.playerName, // حفظ اسم المنشئ لضمان بقاء التاج
+            creatorId: socket.id,
+            players: [{ id: socket.id, name: data.playerName, role: 'منشئ المجموعة', wins: 0, score: 0 }],
+            settings: { rounds: 5, time: 90, currentRound: 0 }
+        });
 
-const newRoom = new Room({
-    roomCode: roomCode,
-    creatorName: data.playerName, // حفظ اسمك كمنشئ دائم
-    creatorId: socket.id,
-    players: [{ id: socket.id, name: data.playerName, role: 'منشئ المجموعة', wins: 0, score: 0 }],
-    settings: { rounds: 5, time: 90, currentRound: 0 }
+        await newRoom.save(); // حفظ الغرفة في MongoDB
+        socket.join(roomCode);
+        socket.emit('room_created', { roomCode });
+        
+        console.log(`✅ تم إنشاء غرفة جديدة: ${roomCode}`);
+    } catch (error) {
+        console.error("خطأ في إنشاء الغرفة:", error);
+    }
 });
   socket.on('join_room_request', async (data) => {
     const roomCode = String(data.roomCode).trim();
