@@ -4,10 +4,15 @@
   <meta charset="UTF-8">
   <title>اللعب - حيوان جماد نبات</title>
 
+  <!-- CSS -->
   <link rel="stylesheet" href="css/base.css">
   <link rel="stylesheet" href="css/game.css">
 
+  <!-- Socket -->
   <script src="/socket.io/socket.io.js"></script>
+
+  <!-- مهم للجوال -->
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
 </head>
 
 <body>
@@ -15,32 +20,53 @@
 <!-- عدّاد البداية -->
 <div id="pre-game-overlay">
   <div id="countdown-number">3</div>
-  <div style="font-size:30px;">استعد...</div>
+  <div class="overlay-text">استعد...</div>
 </div>
 
-<div class="lobby-container">
+<!-- 🔹 حاوية اللعبة (للتجاوب) -->
+<div class="game-wrapper">
+
   <div id="system-message"></div>
 
   <div class="game-header">
     <div>
-      <div>الحرف المخصص:</div>
+      <div class="label">الحرف المخصص</div>
       <div class="challenge-letter" id="current-letter">?</div>
     </div>
     <div id="timer">00:00</div>
   </div>
 
   <div class="answer-grid">
-    <div class="answer-box"><label>حيوان <span id="mark-حيوان"></span></label><input id="حيوان"></div>
-    <div class="answer-box"><label>جماد <span id="mark-جماد"></span></label><input id="جماد"></div>
-    <div class="answer-box"><label>نبات <span id="mark-نبات"></span></label><input id="نبات"></div>
-    <div class="answer-box"><label>بلاد <span id="mark-بلاد"></span></label><input id="بلاد"></div>
-    <div class="answer-box" style="grid-column:span 2"><label>اسم <span id="mark-اسم"></span></label><input id="اسم"></div>
+    <div class="answer-box">
+      <label>حيوان <span id="mark-حيوان"></span></label>
+      <input id="حيوان">
+    </div>
+
+    <div class="answer-box">
+      <label>جماد <span id="mark-جماد"></span></label>
+      <input id="جماد">
+    </div>
+
+    <div class="answer-box">
+      <label>نبات <span id="mark-نبات"></span></label>
+      <input id="نبات">
+    </div>
+
+    <div class="answer-box">
+      <label>بلاد <span id="mark-بلاد"></span></label>
+      <input id="بلاد">
+    </div>
+
+    <div class="answer-box full">
+      <label>اسم <span id="mark-اسم"></span></label>
+      <input id="اسم">
+    </div>
   </div>
 
   <button id="stop-btn">توقف</button>
 </div>
 
-<!-- ✅ شاشة نهاية الجولة (المكان الصحيح) -->
+<!-- ✅ شاشة نهاية الجولة -->
 <div id="end-round-overlay" class="end-overlay" style="display:none;">
   <div class="end-box">
     <h2>🏆 انتهت الجولة</h2>
@@ -54,6 +80,9 @@
 </div>
 
 <script>
+/* ===============================
+   Socket & Data
+================================ */
 const socket = io();
 const ROOM_CODE = new URLSearchParams(location.search).get("roomCode");
 const playerName = localStorage.getItem("gameUsername");
@@ -67,57 +96,81 @@ let currentLetter = "";
 
 const stopBtn = document.getElementById("stop-btn");
 
+/* ===============================
+   Helpers
+================================ */
 function toggleInputs(disabled) {
-  document.querySelectorAll("input").forEach(i => i.disabled = disabled);
+  document.querySelectorAll(".answer-grid input").forEach(i => {
+    i.disabled = disabled;
+  });
 }
 
-function msg(text, color="#2980b9") {
+function showMessage(text, color="#2980b9") {
   const m = document.getElementById("system-message");
   m.textContent = text;
   m.style.background = color;
   m.style.display = "block";
 }
 
+/* ===============================
+   Connection
+================================ */
 socket.on("connect", () => {
   socket.emit("identify_player", { roomCode: ROOM_CODE, playerName });
 });
 
-/* العد التنازلي */
+/* ===============================
+   Countdown
+================================ */
 socket.on("pre_game_countdown", n => {
-  document.getElementById("pre-game-overlay").style.display = "flex";
+  const overlay = document.getElementById("pre-game-overlay");
+  overlay.style.display = "flex";
   document.getElementById("countdown-number").textContent =
     n === 0 ? "ابدأ!" : n;
 });
 
-/* بدء الجولة */
+/* ===============================
+   Start Game
+================================ */
 socket.on("game_actually_started", data => {
   document.getElementById("pre-game-overlay").style.display = "none";
+
   currentLetter = data.letter;
   timeRemaining = data.time;
+
   document.getElementById("current-letter").textContent = currentLetter;
   gameRunning = true;
+
   toggleInputs(false);
   startTimer();
 });
 
-/* التايمر */
+/* ===============================
+   Timer
+================================ */
 function startTimer() {
   clearInterval(timerInterval);
+
   timerInterval = setInterval(() => {
     if (!gameRunning) return;
+
     if (timeRemaining <= 0) {
       sendAnswers(true);
       return;
     }
+
     timeRemaining--;
     document.getElementById("timer").textContent =
       `00:${String(timeRemaining).padStart(2,"0")}`;
   }, 1000);
 }
 
-/* إرسال الإجابات */
+/* ===============================
+   Send Answers
+================================ */
 function sendAnswers(auto=false) {
   if (!gameRunning && !auto) return;
+
   gameRunning = false;
   stopBtn.disabled = true;
 
@@ -134,35 +187,48 @@ function sendAnswers(auto=false) {
     }
   });
 
-  msg("⏳ جاري التحقق...");
+  showMessage("⏳ جاري التحقق...");
 }
 
 stopBtn.onclick = () => sendAnswers(false);
 
-/* تصحيح AI */
-socket.on("ai_correction", r => {
-  for (const k in r) {
+/* ===============================
+   AI Correction
+================================ */
+socket.on("ai_correction", results => {
+  for (const k in results) {
     const el = document.getElementById("mark-" + k);
-    el.textContent = r[k] === "صح" ? "✅" : "❌";
+    el.textContent = results[k] === "صح" ? "✅" : "❌";
   }
 });
 
-/* فشل الإيقاف */
+/* ===============================
+   Stop Failed (محاولة ثانية)
+================================ */
 socket.on("stop_failed", d => {
-  msg(d.message, "#f39c12");
+  showMessage(d.message, "#f39c12");
   gameRunning = true;
   stopBtn.disabled = false;
 });
 
-/* 🎉 نهاية الجولة */
+/* ===============================
+   End Round
+================================ */
 socket.on("player_won_match", d => {
   toggleInputs(true);
-  document.getElementById("end-round-overlay").style.display = "flex";
+
+  const overlay = document.getElementById("end-round-overlay");
+  overlay.style.display = "flex";
+
   document.getElementById("end-winner").textContent =
-    d.winner === playerName ? "🎉 أنت الفائز!" : `🏆 الفائز: ${d.winner}`;
+    d.winner === playerName
+      ? "🎉 أنت الفائز!"
+      : `🏆 الفائز: ${d.winner}`;
 });
 
-/* الأزرار */
+/* ===============================
+   Buttons
+================================ */
 document.getElementById("play-again-btn").onclick = () => {
   socket.emit("request_play_again", { roomCode: ROOM_CODE });
 };
@@ -171,7 +237,11 @@ document.getElementById("back-to-lobby-btn").onclick = () => {
   location.href = `waiting.html?roomCode=${ROOM_CODE}`;
 };
 
+/* ===============================
+   Init
+================================ */
 toggleInputs(true);
 </script>
+
 </body>
 </html>
