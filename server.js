@@ -49,6 +49,7 @@ function cancelPendingDeletion(roomCode) {
 // =====================
 
 // Users
+
 const UserSchema = new mongoose.Schema(
   {
     googleId: { type: String, unique: true, sparse: true },
@@ -96,23 +97,28 @@ const Room = mongoose.model("Room", RoomSchema);
 // =====================
 // Helpers
 // =====================
-const ARABIC_LETTERS = [
+
+const AVAILABLE_LETTERS = [
   "ا","ب","ت","ث","ج",
   "خ","د","ذ","ر","ز","س","ش",
-  "ص","ض","ط","ظ","ع","غ","ف","ق","ك","ل","م","ن","هـ","و","ي"
+  "ص","ض","ط","ظ","ع","غ","ف","ق",
+  "ك","ل","م","ن","هـ","و","ي"
 ];
-
-
-
+ 
 function generateRoomCode() {
   return Math.floor(100000 + Math.random() * 900000).toString();
 }
 
-function selectRandomLetter(usedLetters) {
-  const remaining = AVAILABLE_LETTERS.filter((l) => !usedLetters.includes(l));
+function selectRandomLetter(usedLetters = []) {
+  const remaining = AVAILABLE_LETTERS.filter(
+    l => !usedLetters.includes(l)
+  );
+
   if (remaining.length === 0) return null;
+
   return remaining[Math.floor(Math.random() * remaining.length)];
 }
+
 
 async function verifyGoogleToken(token) {
   try {
@@ -666,3 +672,4 @@ socket.on("stop_game_request", async (data) => {
 server.listen(PORT, () => {
   console.log(`✅ الخادم يعمل على المنفذ: ${PORT}`);
 });
+
