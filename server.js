@@ -180,7 +180,7 @@ ${JSON.stringify(answers)}
 // =====================
 // Express
 // =====================
-app.use(express.static(path.join(__dirname)));
+app.use(express.static(path.join(__dirname, "public")));
 app.get("/", (req, res) => {
   res.sendFile(__dirname + "/public/index.html");
 });
