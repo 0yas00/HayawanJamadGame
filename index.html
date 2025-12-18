@@ -1,116 +1,109 @@
 <!DOCTYPE html>
 <html lang="ar" dir="rtl">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>تسجيل الدخول - حيوان جماد نبات</title>
-    <link rel="stylesheet" href="style.css">
-    <script src="/socket.io/socket.io.js"></script>
-    <script src="https://accounts.google.com/gsi/client" async defer></script>
-    <style>
-        .auth-container { width: 100%; max-width: 400px; margin: 80px auto; padding: 30px; background: white; border-radius: 15px; box-shadow: 0 10px 25px rgba(0,0,0,0.1); text-align: center; }
-        .auth-input { width: 100%; padding: 12px; margin: 10px 0; border: 1px solid #ddd; border-radius: 8px; box-sizing: border-box; font-family: inherit; }
-        .divider { margin: 25px 0; display: flex; align-items: center; text-align: center; color: #888; font-size: 14px; }
-        .divider::before, .divider::after { content: ''; flex: 1; border-bottom: 1px solid #eee; }
-        .divider:not(:empty)::before { margin-left: .8em; }
-        .divider:not(:empty)::after { margin-right: .8em; }
-        .toggle-link { color: #3498db; cursor: pointer; text-decoration: none; margin-top: 15px; display: inline-block; font-size: 14px; }
-        .toggle-link:hover { text-decoration: underline; }
-        .main-btn { width: 100%; padding: 12px; background: #27ae60; color: white; border: none; border-radius: 8px; font-weight: bold; cursor: pointer; font-size: 16px; margin-top: 10px; }
-        .main-btn:hover { background: #219150; }
-    </style>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>تسجيل الدخول - حيوان جماد نبات</title>
+  <link rel="stylesheet" href="style.css" />
+  <script src="/socket.io/socket.io.js"></script>
+  <script src="https://accounts.google.com/gsi/client" async defer></script>
+
+  <style>
+    .auth-container { width: 100%; max-width: 400px; margin: 80px auto; padding: 30px; background: white; border-radius: 15px; box-shadow: 0 10px 25px rgba(0,0,0,0.1); text-align: center; }
+    .auth-input { width: 100%; padding: 12px; margin: 10px 0; border: 1px solid #ddd; border-radius: 8px; box-sizing: border-box; font-family: inherit; }
+    .divider { margin: 25px 0; display: flex; align-items: center; text-align: center; color: #888; font-size: 14px; }
+    .divider::before, .divider::after { content: ''; flex: 1; border-bottom: 1px solid #eee; }
+    .divider:not(:empty)::before { margin-left: .8em; }
+    .divider:not(:empty)::after { margin-right: .8em; }
+    .toggle-link { color: #3498db; cursor: pointer; text-decoration: none; margin-top: 15px; display: inline-block; font-size: 14px; }
+    .toggle-link:hover { text-decoration: underline; }
+    .main-btn { width: 100%; padding: 12px; background: #27ae60; color: white; border: none; border-radius: 8px; font-weight: bold; cursor: pointer; font-size: 16px; margin-top: 10px; }
+    .main-btn:hover { background: #219150; }
+  </style>
 </head>
+
 <body>
+  <div class="auth-container">
+    <h2 id="auth-title">مرحباً بك! 👋</h2>
+    <p style="color:#7f8c8d; margin-bottom:25px;">سجل دخولك لبدء التحدي مع أصدقائك</p>
 
-    <div class="auth-container">
-        <h2 id="auth-title">مرحباً بك! 👋</h2>
-        <p style="color: #7f8c8d; margin-bottom: 25px;">سجل دخولك لبدء التحدي مع أصدقائك</p>
-
-        <div id="g_id_onload"
-             data-client_id="150394320903-79ve7o5v80r87l4ko8807hq3erjlprc3.apps.googleusercontent.com" 
-             data-context="signin"
-             data-ux_mode="popup"
-             data-callback="handleCredentialResponse"
-             data-auto_prompt="false">
-        </div>
-        <div class="g_id_signin" data-type="standard" data-shape="pill" data-theme="outline" data-text="signin_with" data-size="large" data-logo_alignment="left"></div>
-
-        <div class="divider">أو عبر البريد الإلكتروني</div>
-
-        <div id="manual-auth-form">
-            <input type="email" id="auth-email" placeholder="البريد الإلكتروني" class="auth-input">
-            <input type="password" id="auth-password" placeholder="كلمة السر" class="auth-input">
-            
-            <div id="register-fields" style="display: none;">
-                <input type="text" id="auth-username" placeholder="اسم الشهرة في اللعبة" class="auth-input">
-            </div>
-
-            <button class="main-btn" id="btn-login" onclick="manualLogin()">دخول</button>
-            <button class="main-btn" id="btn-register" style="display: none;" onclick="manualRegister()">إنشاء حساب جديد</button>
-            
-            <span class="toggle-link" id="toggle-auth" onclick="toggleAuthMode(true)">ليس لديك حساب؟ سجل الآن</span>
-            <span class="toggle-link" id="toggle-back" style="display: none;" onclick="toggleAuthMode(false)">لديك حساب بالفعل؟ سجل دخولك</span>
-        </div>
+    <div id="g_id_onload"
+      data-client_id="150394320903-79ve7o5v80r87l4ko8807hq3erjlprc3.apps.googleusercontent.com"
+      data-context="signin"
+      data-ux_mode="popup"
+      data-callback="handleCredentialResponse"
+      data-auto_prompt="false">
     </div>
+    <div class="g_id_signin" data-type="standard" data-shape="pill" data-theme="outline"
+      data-text="signin_with" data-size="large" data-logo_alignment="left"></div>
 
-    <script>
-        const socket = io();
+    <div class="divider">أو عبر البريد الإلكتروني</div>
 
-        // 1. الفحص التلقائي عند فتح الصفحة
-        window.onload = () => {
-            const savedEmail = localStorage.getItem('userEmail');
-            const savedName = localStorage.getItem('gameUsername');
-            if (savedEmail && savedName) {
-                // إذا كان اللاعب مسجلاً مسبقاً، نقله للوبي فوراً
-                window.location.href = 'lobby.html';
-            }
-        };
+    <div id="manual-auth-form">
+      <input type="email" id="auth-email" placeholder="البريد الإلكتروني" class="auth-input">
+      <input type="password" id="auth-password" placeholder="كلمة السر" class="auth-input">
 
-        // 2. التبديل بين الدخول والإنشاء
-        function toggleAuthMode(isRegister) {
-            document.getElementById('auth-title').innerText = isRegister ? "إنشاء حساب جديد" : "مرحباً بك! 👋";
-            document.getElementById('register-fields').style.display = isRegister ? "block" : "none";
-            document.getElementById('btn-register').style.display = isRegister ? "block" : "none";
-            document.getElementById('btn-login').style.display = isRegister ? "none" : "block";
-            document.getElementById('toggle-auth').style.display = isRegister ? "none" : "block";
-            document.getElementById('toggle-back').style.display = isRegister ? "block" : "none";
-        }
+      <div id="register-fields" style="display:none;">
+        <input type="text" id="auth-username" placeholder="اسم الشهرة في اللعبة" class="auth-input">
+      </div>
 
-        // 3. إرسال طلبات المصادقة
-        function manualLogin() {
-            const email = document.getElementById('auth-email').value;
-            const password = document.getElementById('auth-password').value;
-            socket.emit('login_request', { email, password });
-        }
+      <button class="main-btn" id="btn-login" onclick="manualLogin()">دخول</button>
+      <button class="main-btn" id="btn-register" style="display:none;" onclick="manualRegister()">إنشاء حساب جديد</button>
 
-        function manualRegister() {
-            const email = document.getElementById('auth-email').value;
-            const password = document.getElementById('auth-password').value;
-            const username = document.getElementById('auth-username').value;
-            socket.emit('register_request', { email, password, username });
-        }
+      <span class="toggle-link" id="toggle-auth" onclick="toggleAuthMode(true)">ليس لديك حساب؟ سجل الآن</span>
+      <span class="toggle-link" id="toggle-back" style="display:none;" onclick="toggleAuthMode(false)">لديك حساب بالفعل؟ سجل دخولك</span>
+    </div>
+  </div>
 
-        function handleCredentialResponse(response) {
-            socket.emit('google_login', { token: response.credential });
-        }
+  <script>
+    const socket = io();
 
-        // 4. استقبال الرد من السيرفر
-        socket.on('auth_success', (data) => {
-            localStorage.setItem('userEmail', data.email);
-            if (data.username) {
-                // حفظ الاسم والانتقال للوبي
-                localStorage.setItem('gameUsername', data.username);
-                window.location.href = 'lobby.html';
-            } else {
-                // مستخدم جوجل جديد ليس لديه اسم شهرة بعد
-                localStorage.setItem('tempUserEmail', data.email);
-                // إظهار نافذة اختيار الاسم (يمكنك وضعها هنا أو في صفحة مستقلة)
-                alert("يرجى اختيار اسم شهرة لإكمال التسجيل");
-                // ملاحظة: يمكنك توجيهه لصفحة setup_name.html أو إظهار Modal
-            }
-        });
+    window.onload = () => {
+      const savedEmail = localStorage.getItem('userEmail');
+      const savedName = localStorage.getItem('gameUsername');
+      if (savedEmail && savedName) window.location.href = 'lobby.html';
+    };
 
-        socket.on('auth_error', (data) => alert(data.message));
-    </script>
+    function toggleAuthMode(isRegister) {
+      document.getElementById('auth-title').innerText = isRegister ? "إنشاء حساب جديد" : "مرحباً بك! 👋";
+      document.getElementById('register-fields').style.display = isRegister ? "block" : "none";
+      document.getElementById('btn-register').style.display = isRegister ? "block" : "none";
+      document.getElementById('btn-login').style.display = isRegister ? "none" : "block";
+      document.getElementById('toggle-auth').style.display = isRegister ? "none" : "block";
+      document.getElementById('toggle-back').style.display = isRegister ? "block" : "none";
+    }
+
+    function manualLogin() {
+      const email = document.getElementById('auth-email').value;
+      const password = document.getElementById('auth-password').value;
+      socket.emit('login_request', { email, password });
+    }
+
+    function manualRegister() {
+      const email = document.getElementById('auth-email').value;
+      const password = document.getElementById('auth-password').value;
+      const username = document.getElementById('auth-username').value;
+      socket.emit('register_request', { email, password, username });
+    }
+
+    function handleCredentialResponse(response) {
+      socket.emit('google_login', { token: response.credential });
+    }
+
+    socket.on('auth_success', (data) => {
+      localStorage.setItem('userEmail', data.email);
+
+      if (data.username) {
+        localStorage.setItem('gameUsername', data.username);
+        window.location.href = 'lobby.html';
+      } else {
+        // مستخدم جوجل جديد: نخليه يروح lobby.html عشان المودال
+        localStorage.setItem('tempUserEmail', data.email);
+        window.location.href = 'lobby.html';
+      }
+    });
+
+    socket.on('auth_error', (data) => alert(data.message));
+  </script>
 </body>
 </html>
