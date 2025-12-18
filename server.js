@@ -31,6 +31,20 @@ const GEMINI_API_KEY = process.env.ENV_GEMINI_API_KEY;
 const googleClient = new OAuth2Client(GOOGLE_CLIENT_ID);
 
 // =====================
+// IMPORTANT FIX:
+// Room deletion grace period map
+// =====================
+const pendingRoomDeletions = new Map(); // roomCode -> timeoutId
+
+function cancelPendingDeletion(roomCode) {
+  if (pendingRoomDeletions.has(roomCode)) {
+    clearTimeout(pendingRoomDeletions.get(roomCode));
+    pendingRoomDeletions.delete(roomCode);
+    console.log(`✅ تم إلغاء حذف الغرفة ${roomCode} بسبب عودة لاعب/انضمام`);
+  }
+}
+
+// =====================
 // MongoDB Models
 // =====================
 
@@ -40,8 +54,7 @@ const UserSchema = new mongoose.Schema(
     googleId: { type: String, unique: true, sparse: true },
     email: { type: String, unique: true, sparse: true },
     password: { type: String },
-    // مهم: جوجل ممكن يجي بدون username بالبداية
-    username: { type: String, default: null },
+    username: { type: String, default: null }, // جوجل ممكن يجي بدون username بالبداية
     wins: { type: Number, default: 0 },
     totalScore: { type: Number, default: 0 },
   },
@@ -67,17 +80,15 @@ const RoomSchema = new mongoose.Schema({
   currentLetter: { type: String, default: "" },
   usedLetters: { type: Array, default: [] },
 
-  // لمنع أكثر من لاعب يوقف بنفس الجولة
   gameStopped: { type: Boolean, default: false },
 
-  // (اختياري) حالة اللعبة
   gameState: {
     type: String,
     enum: ["waiting", "playing"],
     default: "waiting",
   },
 
-  createdAt: { type: Date, default: Date.now }, // بدون expires أثناء التطوير
+  createdAt: { type: Date, default: Date.now }, // بدون TTL أثناء التطوير
 });
 
 const Room = mongoose.model("Room", RoomSchema);
@@ -86,8 +97,7 @@ const Room = mongoose.model("Room", RoomSchema);
 // Helpers
 // =====================
 const AVAILABLE_LETTERS = [
-  "أ", "ب", "ت", "ج", "ح", "خ", "د", "ر", "ز", "س", "ش",
-  "ص", "ط", "ع", "غ", "ف", "ق", "ك", "ل", "م", "ن", "ه", "و", "ي"
+  "أ","ب","ت","ج","ح","خ","د","ر","ز","س","ش","ص","ط","ع","غ","ف","ق","ك","ل","م","ن","ه","و","ي",
 ];
 
 function generateRoomCode() {
@@ -107,7 +117,7 @@ async function verifyGoogleToken(token) {
       audience: GOOGLE_CLIENT_ID,
     });
     return ticket.getPayload();
-  } catch (e) {
+  } catch {
     return null;
   }
 }
@@ -118,7 +128,6 @@ async function validateAnswersWithAI(answers, letter) {
   const prompt = `
 أنت حكم في لعبة "إنسان حيوان جماد نبات بلاد اسم".
 الحرف المطلوب هو "${letter}".
-قيم الإجابات التالية بدقة.
 
 أرجع JSON فقط بهذا الشكل (بدون شرح):
 {
@@ -146,7 +155,6 @@ ${JSON.stringify(answers)}
     const text = response.data?.candidates?.[0]?.content?.parts?.[0]?.text || "";
     const clean = text.replace(/```json|```/g, "").trim();
 
-    // محاولة استخراج JSON لو Gemini زاد نص
     const start = clean.indexOf("{");
     const end = clean.lastIndexOf("}");
     if (start === -1 || end === -1) return null;
@@ -182,9 +190,7 @@ if (!MONGODB_URI) {
 io.on("connection", (socket) => {
   console.log(`👤 لاعب متصل: ${socket.id}`);
 
-  // ---------------------
-  // Auth
-  // ---------------------
+  // ---------- Auth ----------
   socket.on("google_login", async (data) => {
     const payload = await verifyGoogleToken(data.token);
     if (!payload) return socket.emit("auth_error", { message: "رمز جوجل غير صالح" });
@@ -206,7 +212,7 @@ io.on("connection", (socket) => {
         wins: user.wins,
         email: user.email,
       });
-    } catch (e) {
+    } catch {
       socket.emit("auth_error", { message: "خطأ قاعدة بيانات" });
     }
   });
@@ -226,7 +232,6 @@ io.on("connection", (socket) => {
       if (existingName) return socket.emit("auth_error", { message: "اسم المستخدم مأخوذ!" });
 
       const hashedPassword = await bcrypt.hash(password, 10);
-
       const newUser = new User({ email, password: hashedPassword, username });
       await newUser.save();
 
@@ -235,7 +240,7 @@ io.on("connection", (socket) => {
         wins: newUser.wins,
         email: newUser.email,
       });
-    } catch (e) {
+    } catch {
       socket.emit("auth_error", { message: "فشل الإنشاء" });
     }
   });
@@ -253,7 +258,7 @@ io.on("connection", (socket) => {
         wins: user.wins,
         email: user.email,
       });
-    } catch (e) {
+    } catch {
       socket.emit("auth_error", { message: "فشل الدخول" });
     }
   });
@@ -274,46 +279,35 @@ io.on("connection", (socket) => {
         { new: true }
       );
 
-      if (updatedUser) {
-        socket.emit("username_updated", { username: updatedUser.username });
-      }
-    } catch (e) {
+      if (updatedUser) socket.emit("username_updated", { username: updatedUser.username });
+    } catch {
       socket.emit("auth_error", { message: "حدث خطأ أثناء حفظ الاسم" });
     }
   });
 
-  // ---------------------
-  // Rooms
-  // ---------------------
+  // ---------- Rooms ----------
   socket.on("create_room_request", async (data) => {
     try {
       const playerName = (data.playerName || "").trim();
-      if (!playerName) {
-        return socket.emit("room_error", { message: "اسم اللاعب غير موجود" });
-      }
+      if (!playerName) return socket.emit("room_error", { message: "اسم اللاعب غير موجود" });
 
-      // تأكد ما يصير تضارب في الكود
       let roomCode = generateRoomCode();
-      while (await Room.findOne({ roomCode })) {
-        roomCode = generateRoomCode();
-      }
+      while (await Room.findOne({ roomCode })) roomCode = generateRoomCode();
 
       const newRoom = new Room({
         roomCode,
         creatorName: playerName,
         creatorId: socket.id,
-        players: [
-          { id: socket.id, name: playerName, role: "منشئ المجموعة", wins: 0, score: 0 },
-        ],
+        players: [{ id: socket.id, name: playerName, role: "منشئ المجموعة", wins: 0, score: 0 }],
         settings: { rounds: 5, time: 90, currentRound: 0 },
       });
 
       await newRoom.save();
+      cancelPendingDeletion(roomCode);
 
       socket.join(roomCode);
       socket.emit("room_created", { roomCode });
 
-      // ابعث معلومات الغرفة فورًا
       io.to(roomCode).emit("room_info", {
         players: newRoom.players,
         creatorId: newRoom.creatorId,
@@ -322,7 +316,7 @@ io.on("connection", (socket) => {
 
       console.log(`✅ تم إنشاء الغرفة وحفظها: ${roomCode}`);
     } catch (e) {
-      console.error("❌ خطأ إنشاء غرفة:", e);
+      console.error("❌ create_room_request:", e);
       socket.emit("room_error", { message: "حدث خطأ أثناء إنشاء الغرفة" });
     }
   });
@@ -346,18 +340,17 @@ io.on("connection", (socket) => {
         });
       }
 
-      // منع الانضمام بعد بدء اللعب (اختياري)
+      cancelPendingDeletion(roomCode);
+
       if (room.gameState === "playing") {
         return socket.emit("room_error", { message: "المباراة بدأت بالفعل، لا يمكن الانضمام الآن." });
       }
 
       socket.join(roomCode);
 
-      // wins من قاعدة البيانات (لو موجود)
       const userDb = await User.findOne({ username: playerName });
       const wins = userDb ? userDb.wins : 0;
 
-      // لا تكرر نفس الاسم
       if (!room.players.find((p) => p.name === playerName)) {
         room.players.push({ id: socket.id, name: playerName, role: "عضو", wins, score: 0 });
         await room.save();
@@ -373,12 +366,12 @@ io.on("connection", (socket) => {
 
       console.log(`✅ انضم ${playerName} إلى الغرفة ${roomCode}`);
     } catch (e) {
-      console.error("❌ خطأ انضمام:", e);
+      console.error("❌ join_room_request:", e);
       socket.emit("room_error", { message: "حدث خطأ أثناء الانضمام" });
     }
   });
 
-  // هذا الحدث تستخدمه waiting.html (وأيضًا game.html بعد تعديل بسيط)
+  // waiting.html / game.html
   socket.on("identify_player", async (data) => {
     try {
       const roomCode = String(data.roomCode || "").trim();
@@ -388,7 +381,8 @@ io.on("connection", (socket) => {
       const room = await Room.findOne({ roomCode });
       if (!room) return;
 
-      // wins من DB
+      cancelPendingDeletion(roomCode);
+
       const userDb = await User.findOne({ username: playerName });
       const wins = userDb ? userDb.wins : 0;
 
@@ -401,15 +395,12 @@ io.on("connection", (socket) => {
         player = { id: socket.id, name: playerName, role, wins, score: 0 };
         room.players.push(player);
       } else {
-        player.id = socket.id; // تحديث socket.id عند refresh
-        if (isCreatorByName) player.role = "منشئ المجموعة";
+        player.id = socket.id;
         player.wins = wins;
+        if (isCreatorByName) player.role = "منشئ المجموعة";
       }
 
-      // تأكد creatorId صحيح (لو المنشئ عمل ريفرش)
-      if (isCreatorByName) {
-        room.creatorId = socket.id;
-      }
+      if (isCreatorByName) room.creatorId = socket.id;
 
       await room.save();
       socket.join(roomCode);
@@ -422,15 +413,11 @@ io.on("connection", (socket) => {
 
       console.log(`✅ identify_player: ${playerName} في الغرفة ${roomCode}`);
     } catch (e) {
-      console.error("❌ identify_player error:", e);
+      console.error("❌ identify_player:", e);
     }
   });
 
-  // ---------------------
-  // Permissions Actions
-  // ---------------------
-
-  // طرد لاعب (MongoDB only)
+  // ---------- Permissions ----------
   socket.on("kick_player", async (data) => {
     try {
       const roomCode = String(data.roomCode || "").trim();
@@ -439,10 +426,7 @@ io.on("connection", (socket) => {
       const room = await Room.findOne({ roomCode });
       if (!room) return;
 
-      // صلاحية: فقط المنشئ
       if (room.creatorId !== socket.id) return;
-
-      // لا تطرد نفسك
       if (targetId === room.creatorId) return;
 
       room.players = room.players.filter((p) => p.id !== targetId);
@@ -455,14 +439,11 @@ io.on("connection", (socket) => {
       });
 
       io.to(targetId).emit("you_are_kicked");
-
-      console.log(`🧹 تم طرد لاعب من الغرفة ${roomCode}`);
     } catch (e) {
-      console.error("❌ kick_player error:", e);
+      console.error("❌ kick_player:", e);
     }
   });
 
-  // حفظ إعدادات (MongoDB only)
   socket.on("update_settings", async (data) => {
     try {
       const roomCode = String(data.roomCode || "").trim();
@@ -472,10 +453,8 @@ io.on("connection", (socket) => {
       const room = await Room.findOne({ roomCode });
       if (!room) return;
 
-      // صلاحية: فقط المنشئ
       if (room.creatorId !== socket.id) return;
 
-      // قيود بسيطة
       room.settings.rounds = Math.max(1, Math.min(10, rounds || 5));
       room.settings.time = Math.max(30, Math.min(180, time || 90));
 
@@ -486,37 +465,29 @@ io.on("connection", (socket) => {
         creatorId: room.creatorId,
         settings: room.settings,
       });
-
-      console.log(`⚙️ تحديث إعدادات الغرفة ${roomCode}`);
     } catch (e) {
-      console.error("❌ update_settings error:", e);
+      console.error("❌ update_settings:", e);
     }
   });
 
-  // بدء اللعبة (MongoDB only)
   socket.on("start_game", async (data) => {
     try {
       const roomCode = String(data.roomCode || "").trim();
-      const playerName = String(data.playerName || "").trim(); // مهم من الواجهة
+      const playerName = String(data.playerName || "").trim();
 
       const room = await Room.findOne({ roomCode });
       if (!room) return;
 
-      // صلاحية: المنشئ فقط (بـ id أو الاسم كدعم)
+      cancelPendingDeletion(roomCode);
+
       const isCreator = room.creatorId === socket.id || playerName === room.creatorName;
       if (!isCreator) return;
-
-      // امنع البدء مرتين
       if (room.gameState === "playing") return;
 
-      // جهّز جولة جديدة
       room.gameStopped = false;
       room.gameState = "playing";
-
-      // عداد جولات
       if (!room.settings.currentRound) room.settings.currentRound = 0;
 
-      // العد التنازلي
       let count = 3;
       const interval = setInterval(async () => {
         io.to(roomCode).emit("pre_game_countdown", count);
@@ -524,10 +495,8 @@ io.on("connection", (socket) => {
         if (count === 0) {
           clearInterval(interval);
 
-          // اختر حرف
           const nextLetter = selectRandomLetter(room.usedLetters);
           if (!nextLetter) {
-            // انتهت الحروف (نادراً)
             room.gameState = "waiting";
             await room.save();
             io.to(roomCode).emit("room_error", { message: "انتهت الحروف المتاحة!" });
@@ -545,18 +514,15 @@ io.on("connection", (socket) => {
             time: room.settings.time,
             round: room.settings.currentRound,
           });
-
-          console.log(`🎮 بدأت الجولة ${room.settings.currentRound} للحرف ${nextLetter} في الغرفة ${roomCode}`);
         }
 
         count--;
       }, 1000);
     } catch (e) {
-      console.error("❌ start_game error:", e);
+      console.error("❌ start_game:", e);
     }
   });
 
-  // زر "توقف" من game.html
   socket.on("stop_game_request", async (data) => {
     try {
       const roomCode = String(data.roomCode || "").trim();
@@ -567,12 +533,12 @@ io.on("connection", (socket) => {
       const room = await Room.findOne({ roomCode });
       if (!room) return socket.emit("stop_failed", { message: "الغرفة غير موجودة" });
 
-      // امنع أكثر من توقيف
+      cancelPendingDeletion(roomCode);
+
       if (room.gameStopped) {
         return socket.emit("stop_failed", { message: "تم إيقاف الجولة بالفعل!" });
       }
 
-      // حرف الأمان: لازم يطابق حرف الغرفة
       if (room.currentLetter && currentLetter && room.currentLetter !== currentLetter) {
         return socket.emit("stop_failed", { message: "حرف الجولة غير مطابق!" });
       }
@@ -581,11 +547,9 @@ io.on("connection", (socket) => {
       room.gameState = "waiting";
       await room.save();
 
-      // شغّل Gemini
       const result = await validateAnswersWithAI(answers, room.currentLetter || currentLetter);
 
       if (!result) {
-        // لو فشل الذكاء
         io.to(roomCode).emit("ai_correction", {
           حيوان: "خطأ",
           جماد: "خطأ",
@@ -597,25 +561,17 @@ io.on("connection", (socket) => {
         return;
       }
 
-      // ابعث التصحيح للجميع
       io.to(roomCode).emit("ai_correction", result);
-
-      // إعلان الفائز (حسب طلبك الحالي: أول من يوقف هو الفائز)
       io.to(roomCode).emit("player_won_match", { winner: playerName });
 
-      // تحديث wins
       await User.findOneAndUpdate({ username: playerName }, { $inc: { wins: 1 } });
-
-      console.log(`🏁 stop_game_request: الفائز ${playerName} في الغرفة ${roomCode}`);
     } catch (e) {
-      console.error("❌ stop_game_request error:", e);
+      console.error("❌ stop_game_request:", e);
       socket.emit("stop_failed", { message: "حدث خطأ أثناء التحقق" });
     }
   });
 
-  // ---------------------
-  // Disconnect
-  // ---------------------
+  // ---------- Disconnect (FIXED) ----------
   socket.on("disconnect", async () => {
     try {
       const room = await Room.findOne({ "players.id": socket.id });
@@ -624,23 +580,39 @@ io.on("connection", (socket) => {
       const roomCode = room.roomCode;
       const updatedPlayers = room.players.filter((p) => p.id !== socket.id);
 
+      // ✅ لا تحذف الغرفة فورًا — أعط مهلة 30 ثانية
       if (updatedPlayers.length === 0) {
-        await Room.deleteOne({ roomCode });
-        console.log(`🗑️ تم حذف الغرفة الفارغة: ${roomCode}`);
+        console.log(`⏳ الغرفة ${roomCode} أصبحت فارغة، سيتم حذفها بعد 30 ثانية إذا لم يعد أحد`);
+
+        // لو فيه حذف قديم معلق، ألغيه وأعد جدولة جديدة
+        cancelPendingDeletion(roomCode);
+
+        const timeout = setTimeout(async () => {
+          try {
+            const stillRoom = await Room.findOne({ roomCode });
+            if (stillRoom && Array.isArray(stillRoom.players) && stillRoom.players.length === 0) {
+              await Room.deleteOne({ roomCode });
+              console.log(`🗑️ تم حذف الغرفة نهائيًا: ${roomCode}`);
+            } else {
+              console.log(`✅ لم يتم حذف الغرفة ${roomCode} لأن لاعب عاد`);
+            }
+          } finally {
+            pendingRoomDeletions.delete(roomCode);
+          }
+        }, 30000);
+
+        pendingRoomDeletions.set(roomCode, timeout);
         return;
       }
 
-      // نقل القيادة إذا خرج المنشئ
+      // إذا خرج المنشئ: انقل القيادة لأول لاعب
       if (socket.id === room.creatorId) {
         const nextLeader = updatedPlayers[0];
         room.creatorId = nextLeader.id;
         room.creatorName = nextLeader.name;
 
-        // حدّث الأدوار
         updatedPlayers.forEach((p) => (p.role = "عضو"));
         nextLeader.role = "منشئ المجموعة";
-
-        console.log(`👑 انتقلت القيادة إلى: ${room.creatorName}`);
       }
 
       room.players = updatedPlayers;
@@ -652,14 +624,11 @@ io.on("connection", (socket) => {
         settings: room.settings,
       });
     } catch (e) {
-      console.error("❌ disconnect error:", e);
+      console.error("❌ disconnect:", e);
     }
   });
 });
 
-// =====================
-// Listen
-// =====================
 server.listen(PORT, () => {
   console.log(`✅ الخادم يعمل على المنفذ: ${PORT}`);
 });
