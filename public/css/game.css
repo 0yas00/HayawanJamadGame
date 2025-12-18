@@ -1,0 +1,80 @@
+/* =========================
+   game.css
+   ========================= */
+
+.game-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 25px;
+}
+
+#timer {
+  background: #fff;
+  border: 3px solid var(--danger);
+  color: var(--danger);
+  font-size: 36px;
+  padding: 10px 22px;
+  border-radius: 16px;
+  font-weight: 900;
+}
+
+.challenge-letter {
+  font-size: 64px;
+  font-weight: 900;
+  color: var(--primary);
+}
+
+.answer-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 20px;
+}
+
+.answer-box {
+  background: #f8fafc;
+  padding: 15px;
+  border-radius: 16px;
+  position: relative;
+  transition: 0.3s;
+}
+
+.answer-box input {
+  width: 100%;
+  padding: 12px;
+  border-radius: 10px;
+  border: 1px solid #d1d5db;
+  font-size: 15px;
+}
+
+.answer-box.correct {
+  border: 2px solid var(--secondary);
+}
+
+.answer-box.wrong {
+  border: 2px solid var(--danger);
+}
+
+.feedback-icon {
+  position: absolute;
+  top: 10px;
+  left: 10px;
+  font-size: 22px;
+}
+
+#stop-btn {
+  margin-top: 30px;
+  width: 100%;
+  background: linear-gradient(135deg, var(--warning), #f97316);
+  color: white;
+  font-size: 22px;
+}
+
+#system-message {
+  margin-bottom: 20px;
+  padding: 16px;
+  border-radius: 14px;
+  color: white;
+  text-align: center;
+  font-size: 18px;
+}

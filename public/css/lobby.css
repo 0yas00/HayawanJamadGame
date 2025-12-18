@@ -1,0 +1,66 @@
+/* =========================
+   lobby.css
+   ========================= */
+
+.lobby-container {
+  max-width: 520px;
+  margin: 40px auto;
+  background: var(--card);
+  padding: 25px;
+  border-radius: 22px;
+  box-shadow: 0 20px 40px rgba(0,0,0,0.1);
+}
+
+.lobby-container h2,
+.lobby-container h3 {
+  text-align: center;
+  margin-bottom: 15px;
+}
+
+#player-list li {
+  background: #f8fafc;
+  padding: 14px;
+  border-radius: 14px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 10px;
+}
+
+.creator-tag {
+  background: linear-gradient(135deg, #fde68a, #facc15);
+  color: #92400e;
+  padding: 4px 8px;
+  border-radius: 8px;
+  font-size: 12px;
+}
+
+.member-tag {
+  background: #e5e7eb;
+  color: #374151;
+  padding: 4px 8px;
+  border-radius: 8px;
+  font-size: 12px;
+}
+
+.win-badge {
+  background: linear-gradient(135deg, #fde047, #fbbf24);
+  padding: 5px 12px;
+  border-radius: 999px;
+  font-size: 13px;
+}
+
+.main-play-button {
+  width: 100%;
+  background: linear-gradient(135deg, var(--primary), #6366f1);
+  color: white;
+  font-size: 18px;
+  margin-top: 20px;
+}
+
+.kick-btn {
+  background: linear-gradient(135deg, var(--danger), #dc2626);
+  color: white;
+  padding: 6px 10px;
+  font-size: 12px;
+}

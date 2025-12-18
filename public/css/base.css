@@ -1,0 +1,58 @@
+/* =========================
+   base.css
+   ========================= */
+
+/* خط عربي جميل */
+@import url('https://fonts.googleapis.com/css2?family=Cairo:wght@400;600;700;900&display=swap');
+
+:root {
+  --primary: #4f46e5;
+  --secondary: #22c55e;
+  --danger: #ef4444;
+  --warning: #f59e0b;
+  --bg: #f5f7ff;
+  --card: #ffffff;
+  --text: #1f2937;
+}
+
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  font-family: 'Cairo', sans-serif;
+  background: linear-gradient(135deg, #eef2ff, #f8fafc);
+  min-height: 100vh;
+  color: var(--text);
+}
+
+/* أزرار عامة */
+button {
+  font-family: inherit;
+  border: none;
+  border-radius: 14px;
+  padding: 14px 20px;
+  cursor: pointer;
+  font-weight: bold;
+  transition: 0.25s ease;
+}
+
+button:hover {
+  transform: translateY(-2px);
+  opacity: 0.95;
+}
+
+button:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+/* كرت عام */
+.card {
+  background: var(--card);
+  border-radius: 18px;
+  padding: 20px;
+  box-shadow: 0 15px 35px rgba(0,0,0,0.08);
+}
