@@ -78,3 +78,64 @@
   text-align: center;
   font-size: 18px;
 }
+/* =========================
+   شاشة نهاية الجولة
+========================= */
+
+.end-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,0.8);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 9999;
+}
+
+.end-box {
+  background: #fff;
+  padding: 30px;
+  border-radius: 16px;
+  text-align: center;
+  width: 90%;
+  max-width: 400px;
+  animation: popIn 0.4s ease;
+}
+
+.end-box h2 {
+  margin-bottom: 10px;
+  color: #2c3e50;
+}
+
+.end-box p {
+  font-size: 18px;
+  margin-bottom: 20px;
+}
+
+.end-actions {
+  display: flex;
+  gap: 10px;
+}
+
+.end-actions button {
+  flex: 1;
+  padding: 12px;
+  border: none;
+  border-radius: 10px;
+  font-size: 16px;
+  cursor: pointer;
+}
+
+#play-again-btn {
+  background: #27ae60;
+  color: #fff;
+}
+
+#back-to-lobby-btn {
+  background: #bdc3c7;
+}
+
+@keyframes popIn {
+  from { transform: scale(0.8); opacity: 0; }
+  to   { transform: scale(1); opacity: 1; }
+}

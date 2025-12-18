@@ -610,6 +610,25 @@ socket.on("stop_game_request", async (data) => {
   }
 });
 
+  // -------------------------
+  // 🔁 Play Again (NEW)
+  // -------------------------
+  socket.on("request_play_again", async ({ roomCode }) => {
+    const room = await Room.findOne({ roomCode });
+    if (!room) return;
+
+    if (room.creatorId !== socket.id) {
+      socket.emit("room_error", { message: "بانتظار موافقة منشئ الغرفة" });
+      return;
+    }
+
+    room.gameState = "waiting";
+    room.gameStopped = false;
+    room.currentLetter = "";
+    await room.save();
+
+    io.to(roomCode).emit("game_restart_approved");
+  });
 
   // ---------- Disconnect (FIXED) ----------
   socket.on("disconnect", async () => {

@@ -1,38 +1,18 @@
 <!DOCTYPE html>
 <html lang="ar" dir="rtl">
 <head>
-  <link rel="stylesheet" href="css/base.css">
-<link rel="stylesheet" href="css/game.css">
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>اللعب - حيوان جماد نبات</title>
+
+  <link rel="stylesheet" href="css/base.css">
+  <link rel="stylesheet" href="css/game.css">
+
   <script src="/socket.io/socket.io.js"></script>
-
-  <style>
-    .game-header { display:flex; justify-content:space-between; align-items:center; margin-bottom:20px; padding:10px 0; border-bottom:2px solid #ddd; }
-    #timer { font-size:40px; font-weight:bold; color:#e74c3c; border:3px solid #e74c3c; padding:10px 20px; border-radius:10px; background-color:#ffeaea; }
-    .challenge-letter { font-size:50px; color:#2c3e50; font-weight:900; }
-    .answer-grid { display:grid; grid-template-columns:repeat(2, 1fr); gap:20px; margin-bottom:30px; }
-    .answer-box { background-color:#ecf0f1; padding:15px; border-radius:8px; position:relative; }
-    .answer-box label { display:block; font-weight:bold; margin-bottom:8px; color:#2980b9; font-size:18px; }
-    .answer-box input { width:100%; padding:10px; border:1px solid #bdc3c7; border-radius:5px; text-align:right; }
-    .feedback-icon { position:absolute; top:15px; left:15px; font-size:20px; display:none; }
-
-    #stop-btn { background-color:#f39c12; color:white; border:none; padding:15px; border-radius:8px; font-size:22px; width:100%; cursor:pointer; }
-    #system-message { margin-top:20px; padding:15px; border-radius:8px; display:none; text-align:center; font-weight:bold; }
-
-    #pre-game-overlay {
-      position:fixed; inset:0;
-      background:rgba(0,0,0,0.9); color:white;
-      display:none; flex-direction:column;
-      align-items:center; justify-content:center;
-      font-size:120px; z-index:9999;
-    }
-  </style>
 </head>
 
 <body>
 
+<!-- عدّاد البداية -->
 <div id="pre-game-overlay">
   <div id="countdown-number">3</div>
   <div style="font-size:30px;">استعد...</div>
@@ -50,21 +30,33 @@
   </div>
 
   <div class="answer-grid">
-    <div class="answer-box"><label>حيوان <span id="mark-حيوان" class="feedback-icon"></span></label><input id="حيوان"></div>
-    <div class="answer-box"><label>جماد <span id="mark-جماد" class="feedback-icon"></span></label><input id="جماد"></div>
-    <div class="answer-box"><label>نبات <span id="mark-نبات" class="feedback-icon"></span></label><input id="نبات"></div>
-    <div class="answer-box"><label>بلاد <span id="mark-بلاد" class="feedback-icon"></span></label><input id="بلاد"></div>
-    <div class="answer-box" style="grid-column:span 2"><label>اسم <span id="mark-اسم" class="feedback-icon"></span></label><input id="اسم"></div>
+    <div class="answer-box"><label>حيوان <span id="mark-حيوان"></span></label><input id="حيوان"></div>
+    <div class="answer-box"><label>جماد <span id="mark-جماد"></span></label><input id="جماد"></div>
+    <div class="answer-box"><label>نبات <span id="mark-نبات"></span></label><input id="نبات"></div>
+    <div class="answer-box"><label>بلاد <span id="mark-بلاد"></span></label><input id="بلاد"></div>
+    <div class="answer-box" style="grid-column:span 2"><label>اسم <span id="mark-اسم"></span></label><input id="اسم"></div>
   </div>
 
-  <button id="stop-btn" onclick="handleStop()">توقف</button>
+  <button id="stop-btn">توقف</button>
+</div>
+
+<!-- ✅ شاشة نهاية الجولة (المكان الصحيح) -->
+<div id="end-round-overlay" class="end-overlay" style="display:none;">
+  <div class="end-box">
+    <h2>🏆 انتهت الجولة</h2>
+    <p id="end-winner"></p>
+
+    <div class="end-actions">
+      <button id="play-again-btn">🔁 لعب مرة ثانية</button>
+      <button id="back-to-lobby-btn">⬅️ العودة للغرفة</button>
+    </div>
+  </div>
 </div>
 
 <script>
 const socket = io();
 const ROOM_CODE = new URLSearchParams(location.search).get("roomCode");
 const playerName = localStorage.getItem("gameUsername");
-const isCreator = localStorage.getItem("isCreator") === "true";
 
 if (!ROOM_CODE || !playerName) location.href = "index.html";
 
@@ -72,6 +64,8 @@ let timeRemaining = 0;
 let timerInterval;
 let gameRunning = false;
 let currentLetter = "";
+
+const stopBtn = document.getElementById("stop-btn");
 
 function toggleInputs(disabled) {
   document.querySelectorAll("input").forEach(i => i.disabled = disabled);
@@ -86,17 +80,16 @@ function msg(text, color="#2980b9") {
 
 socket.on("connect", () => {
   socket.emit("identify_player", { roomCode: ROOM_CODE, playerName });
-
-  if (isCreator) {
-    socket.emit("start_game", { roomCode: ROOM_CODE, playerName });
-  }
 });
 
+/* العد التنازلي */
 socket.on("pre_game_countdown", n => {
   document.getElementById("pre-game-overlay").style.display = "flex";
-  document.getElementById("countdown-number").textContent = n === 0 ? "ابدأ!" : n;
+  document.getElementById("countdown-number").textContent =
+    n === 0 ? "ابدأ!" : n;
 });
 
+/* بدء الجولة */
 socket.on("game_actually_started", data => {
   document.getElementById("pre-game-overlay").style.display = "none";
   currentLetter = data.letter;
@@ -107,12 +100,13 @@ socket.on("game_actually_started", data => {
   startTimer();
 });
 
+/* التايمر */
 function startTimer() {
   clearInterval(timerInterval);
   timerInterval = setInterval(() => {
     if (!gameRunning) return;
     if (timeRemaining <= 0) {
-      handleStop(true);
+      sendAnswers(true);
       return;
     }
     timeRemaining--;
@@ -121,8 +115,12 @@ function startTimer() {
   }, 1000);
 }
 
-function handleStop(auto=false) {
+/* إرسال الإجابات */
+function sendAnswers(auto=false) {
   if (!gameRunning && !auto) return;
+  gameRunning = false;
+  stopBtn.disabled = true;
+
   socket.emit("stop_game_request", {
     roomCode: ROOM_CODE,
     playerName,
@@ -135,27 +133,43 @@ function handleStop(auto=false) {
       اسم: اسم.value
     }
   });
+
   msg("⏳ جاري التحقق...");
 }
 
-socket.on("stop_failed", d => {
-  msg(d.message, "#f39c12");
-  gameRunning = true;        // 👈 يسمح بالمحاولة مرة ثانية
-});
+stopBtn.onclick = () => sendAnswers(false);
 
-socket.on("player_won_match", d => {
-  gameRunning = false;
-  toggleInputs(true);
-  msg(d.winner === playerName ? "🎉 فزت!" : `🏆 الفائز: ${d.winner}`, "#27ae60");
-});
-
+/* تصحيح AI */
 socket.on("ai_correction", r => {
   for (const k in r) {
     const el = document.getElementById("mark-" + k);
     el.textContent = r[k] === "صح" ? "✅" : "❌";
-    el.style.display = "inline";
   }
 });
+
+/* فشل الإيقاف */
+socket.on("stop_failed", d => {
+  msg(d.message, "#f39c12");
+  gameRunning = true;
+  stopBtn.disabled = false;
+});
+
+/* 🎉 نهاية الجولة */
+socket.on("player_won_match", d => {
+  toggleInputs(true);
+  document.getElementById("end-round-overlay").style.display = "flex";
+  document.getElementById("end-winner").textContent =
+    d.winner === playerName ? "🎉 أنت الفائز!" : `🏆 الفائز: ${d.winner}`;
+});
+
+/* الأزرار */
+document.getElementById("play-again-btn").onclick = () => {
+  socket.emit("request_play_again", { roomCode: ROOM_CODE });
+};
+
+document.getElementById("back-to-lobby-btn").onclick = () => {
+  location.href = `waiting.html?roomCode=${ROOM_CODE}`;
+};
 
 toggleInputs(true);
 </script>
