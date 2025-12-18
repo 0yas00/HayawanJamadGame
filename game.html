@@ -98,13 +98,18 @@
       sysMsg.style.display = 'block';
     }
 
-    // ⭐ الدخول الحقيقي للغرفة
-    socket.on('connect', () => {
-      socket.emit('identify_player', {
-        roomCode: ROOM_CODE,
-        playerName: playerName
-      });
-    });
+   socket.on('connect', () => {
+  socket.emit('identify_player', {
+    roomCode: ROOM_CODE,
+    playerName: playerName
+  });
+
+  // ⭐️ اطلب بدء اللعبة من هنا (بعد الدخول للغرفة)
+  socket.emit('start_game', {
+    roomCode: ROOM_CODE,
+    playerName: playerName
+  });
+});
 
     // العد التنازلي
     socket.on('pre_game_countdown', (count) => {

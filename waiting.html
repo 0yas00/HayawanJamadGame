@@ -195,12 +195,8 @@
       setTimeout(() => { document.getElementById('settings-message').textContent = ""; }, 2000);
     }
 
-  function startGame() {
-  const playerName = localStorage.getItem('gameUsername');
-  socket.emit('start_game', {
-    roomCode: ROOM_CODE,
-    playerName: playerName
-  });
+function startGame() {
+  window.location.href = `game.html?roomCode=${ROOM_CODE}`;
 }
 
     socket.on('pre_game_countdown', (count) => {

@@ -470,58 +470,72 @@ io.on("connection", (socket) => {
     }
   });
 
-  socket.on("start_game", async (data) => {
-    try {
-      const roomCode = String(data.roomCode || "").trim();
-      const playerName = String(data.playerName || "").trim();
+socket.on("start_game", async (data) => {
+  try {
+    const roomCode = String(data.roomCode || "").trim();
+    const playerName = String(data.playerName || "").trim();
 
-      const room = await Room.findOne({ roomCode });
-      if (!room) return;
+    const room = await Room.findOne({ roomCode });
+    if (!room) return;
 
-      cancelPendingDeletion(roomCode);
+    cancelPendingDeletion(roomCode);
 
-      const isCreator = room.creatorId === socket.id || playerName === room.creatorName;
-      if (!isCreator) return;
-      if (room.gameState === "playing") return;
+    const isCreator =
+      room.creatorId === socket.id || playerName === room.creatorName;
 
-      room.gameStopped = false;
-      room.gameState = "playing";
-      if (!room.settings.currentRound) room.settings.currentRound = 0;
+    if (!isCreator) {
+      console.log("❌ محاولة بدء من غير المنشئ");
+      return;
+    }
 
-      let count = 3;
-      const interval = setInterval(async () => {
-        io.to(roomCode).emit("pre_game_countdown", count);
+    if (room.gameState === "playing") return;
 
-        if (count === 0) {
-          clearInterval(interval);
+    room.gameStopped = false;
+    room.gameState = "playing";
+    if (!room.settings.currentRound) room.settings.currentRound = 0;
 
-          const nextLetter = selectRandomLetter(room.usedLetters);
-          if (!nextLetter) {
-            room.gameState = "waiting";
-            await room.save();
-            io.to(roomCode).emit("room_error", { message: "انتهت الحروف المتاحة!" });
-            return;
-          }
+    let count = 3;
 
-          room.currentLetter = nextLetter;
-          room.usedLetters.push(nextLetter);
-          room.settings.currentRound += 1;
+    const interval = setInterval(async () => {
+      io.to(roomCode).emit("pre_game_countdown", count);
 
+      if (count === 0) {
+        clearInterval(interval);
+
+        const nextLetter = selectRandomLetter(room.usedLetters);
+
+        if (!nextLetter) {
+          room.gameState = "waiting";
           await room.save();
-
-          io.to(roomCode).emit("game_actually_started", {
-            letter: nextLetter,
-            time: room.settings.time,
-            round: room.settings.currentRound,
+          io.to(roomCode).emit("room_error", {
+            message: "انتهت جميع الحروف المتاحة!",
           });
+          return;
         }
 
-        count--;
-      }, 1000);
-    } catch (e) {
-      console.error("❌ start_game:", e);
-    }
-  });
+        // ✅ المهم جدًا
+        room.currentLetter = nextLetter;
+        room.usedLetters.push(nextLetter);
+        room.settings.currentRound += 1;
+
+        await room.save();
+
+        // ✅ إرسال بدء الجولة الفعلي
+        io.to(roomCode).emit("game_actually_started", {
+          letter: nextLetter,
+          time: room.settings.time,
+          round: room.settings.currentRound,
+        });
+
+        console.log(`🎮 بدأت الجولة ${room.settings.currentRound} بحرف ${nextLetter}`);
+      }
+
+      count--;
+    }, 1000);
+  } catch (err) {
+    console.error("❌ start_game error:", err);
+  }
+});
 
   socket.on("stop_game_request", async (data) => {
     try {
