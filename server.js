@@ -96,9 +96,13 @@ const Room = mongoose.model("Room", RoomSchema);
 // =====================
 // Helpers
 // =====================
-const AVAILABLE_LETTERS = [
-  "أ","ب","ت","ج","ح","خ","د","ر","ز","س","ش","ص","ط","ع","غ","ف","ق","ك","ل","م","ن","ه","و","ي",
+const ARABIC_LETTERS = [
+  "ا","ب","ت","ث","ج",
+  "خ","د","ذ","ر","ز","س","ش",
+  "ص","ض","ط","ظ","ع","غ","ف","ق","ك","ل","م","ن","هـ","و","ي"
 ];
+
+
 
 function generateRoomCode() {
   return Math.floor(100000 + Math.random() * 900000).toString();
