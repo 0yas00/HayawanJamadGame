@@ -38,9 +38,12 @@ const UserSchema = new mongoose.Schema({
 
 const User = mongoose.model('User', UserSchema);
 // --- إضافة نموذج الغرفة هنا لضمان بقائها في قاعدة البيانات ---
+
 const RoomSchema = new mongoose.Schema({
     roomCode: { type: String, unique: true, required: true },
+    creatorName: { type: String, required: true }, // أضف هذا السطر لحفظ اسم المنشئ
     creatorId: { type: String, required: true },
+    // ... بقية الكود كما هو
     players: { type: Array, default: [] },
     settings: { type: Object, default: { rounds: 5, time: 90, currentRound: 0 } },
     currentLetter: { type: String, default: "" },
@@ -194,28 +197,13 @@ io.on('connection', (socket) => {
         }
     });
 
-socket.on('create_room_request', async (data) => {
-    try {
-        let roomCode = generateRoomCode();
-        const userDb = await User.findOne({ username: data.playerName });
-        
-        // إنشاء الغرفة في MongoDB بدلاً من ذاكرة السيرفر
-        const newRoom = new Room({
-            roomCode: roomCode,
-            creatorId: socket.id,
-            players: [{ id: socket.id, name: data.playerName, wins: userDb ? userDb.wins : 0, score: 0 }],
-            settings: { rounds: 5, time: 90, currentRound: 0 }
-        });
-
-        await newRoom.save(); // الحفظ الفعلي
-        socket.join(roomCode);
-        console.log(`✅ تم حفظ الغرفة في قاعدة البيانات: ${roomCode}`);
-        socket.emit('room_created', { roomCode });
-    } catch (error) {
-        socket.emit('room_error', { message: "فشل إنشاء الغرفة" });
-    }
+const newRoom = new Room({
+    roomCode: roomCode,
+    creatorName: data.playerName, // حفظ اسمك كمنشئ دائم
+    creatorId: socket.id,
+    players: [{ id: socket.id, name: data.playerName, role: 'منشئ المجموعة', wins: 0, score: 0 }],
+    settings: { rounds: 5, time: 90, currentRound: 0 }
 });
-
   socket.on('join_room_request', async (data) => {
     const roomCode = String(data.roomCode).trim();
     try {
@@ -259,8 +247,9 @@ socket.on('create_room_request', async (data) => {
             let player = room.players.find(p => p.name === data.playerName);
             
             // تحديد الدور: إذا كان هو من أنشأ الغرفة يأخذ لقب منشئ
-            const role = (socket.id === room.creatorId || room.players.length === 0) ? 'منشئ المجموعة' : 'عضو';
-
+           // التحقق من الدور بناءً على الاسم المخزن أو إذا كانت القائمة فارغة
+const isCreator = (data.playerName === room.creatorName || room.players.length === 0);
+const role = isCreator ? 'منشئ المجموعة' : 'عضو';
             if (!player) {
                 // إضافة لاعب جديد مع دوره
                 player = { id: socket.id, name: data.playerName, role: role, wins: wins, score: 0 };
@@ -305,31 +294,65 @@ socket.on('create_room_request', async (data) => {
         } catch (e) { console.log("خطأ تحديث فوز"); }
     });
 
-    // --- الخروج (Disconnect) ---
-    socket.on('disconnect', () => {
-        for (const roomCode in activeRooms) {
-            const room = activeRooms[roomCode];
-            const pIdx = room.players.findIndex(p => p.id === socket.id);
-            if (pIdx !== -1) {
-                const pName = room.players[pIdx].name;
-                room.players.splice(pIdx, 1);
-                
-                if (room.players.length === 0) {
-                    delete activeRooms[roomCode];
-                } else {
-                    if (socket.id === room.creatorId) room.creatorId = room.players[0].id;
-                    io.to(roomCode).emit('room_info', { players: room.players, creatorId: room.creatorId, settings: room.settings });
-                    io.to(roomCode).emit('system_message', { message: `🚪 غادر ${pName} الغرفة`, color: '#e74c3c' });
+  socket.on('disconnect', async () => {
+    try {
+        // البحث عن أي غرفة كان يتواجد بها هذا اللاعب
+        const room = await Room.findOne({ "players.id": socket.id });
+        
+        if (room) {
+            // حذف اللاعب من القائمة
+            const updatedPlayers = room.players.filter(p => p.id !== socket.id);
+            
+            if (updatedPlayers.length === 0) {
+                // إذا لم يتبق أحد، نحذف الغرفة نهائياً
+                await Room.deleteOne({ roomCode: room.roomCode });
+                console.log(`🗑️ تم حذف الغرفة الفارغة: ${room.roomCode}`);
+            } else {
+                let newCreatorId = room.creatorId;
+                let newCreatorName = room.creatorName;
+
+                // إذا كان اللاعب المغادر هو المنشئ، ننقل الصلاحية لأول لاعب متبقي
+                if (socket.id === room.creatorId) {
+                    const nextLeader = updatedPlayers[0];
+                    newCreatorId = nextLeader.id;
+                    newCreatorName = nextLeader.name;
+                    nextLeader.role = 'منشئ المجموعة'; // تحديث دور القائد الجديد
+                    console.log(`👑 انتقلت القيادة إلى: ${newCreatorName}`);
                 }
-                break;
+
+                // حفظ التغييرات في قاعدة البيانات
+                await Room.updateOne(
+                    { roomCode: room.roomCode },
+                    { 
+                        players: updatedPlayers, 
+                        creatorId: newCreatorId, 
+                        creatorName: newCreatorName 
+                    }
+                );
+
+                // إبلاغ الجميع في الغرفة بالمنشئ الجديد وقائمة اللاعبين المحدثة
+                io.to(room.roomCode).emit('room_info', { 
+                    players: updatedPlayers, 
+                    creatorId: newCreatorId, 
+                    settings: room.settings 
+                });
+                
+                io.to(room.roomCode).emit('system_message', { 
+                    message: `🚪 غادر اللاعب وتبدلت القيادة!`, 
+                    color: '#e74c3c' 
+                });
             }
         }
-    });
+    } catch (error) {
+        console.error("خطأ أثناء الخروج:", error);
+    }
+});
 
     // --- إعدادات المباراة وبدء اللعب ---
     socket.on('update_settings', (data) => {
         const room = activeRooms[data.roomCode];
-        if (room && room.creatorId === socket.id) {
+       // السطر 342 المحدث:
+if (room && (room.creatorId === socket.id || data.playerName === room.creatorName)) {
             room.settings.rounds = data.rounds;
             room.settings.time = data.time;
             io.to(data.roomCode).emit('room_info', { players: room.players, creatorId: room.creatorId, settings: room.settings });
@@ -339,7 +362,8 @@ socket.on('create_room_request', async (data) => {
 socket.on('start_game', async (data) => {
     try {
         const room = await Room.findOne({ roomCode: data.roomCode });
-        if (room && room.creatorId === socket.id) {
+       // السماح بالبدء إذا كان الاسم يطابق اسم المنشئ المخزن
+if (room && (room.creatorId === socket.id || data.playerName === room.creatorName)) {
             
             // بدلاً من بدء اللعبة فوراً، نرسل عد تنازلي للجميع
             let count = 3;
