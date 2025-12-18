@@ -199,23 +199,27 @@ io.on('connection', (socket) => {
 // ابحث عن هذا الحدث (غالباً يكون قبل السطر 200)
 socket.on('create_room_request', async (data) => {
     try {
-        let roomCode = generateRoomCode(); // توليد الرقم أولاً
+        let roomCode = generateRoomCode();
         
         const newRoom = new Room({
             roomCode: roomCode,
-            creatorName: data.playerName, // حفظ الاسم لضمان التاج
+            creatorName: data.playerName, // حفظ الاسم لضمان بقاء التاج 👑
             creatorId: socket.id,
             players: [{ id: socket.id, name: data.playerName, role: 'منشئ المجموعة', wins: 0, score: 0 }],
             settings: { rounds: 5, time: 90, currentRound: 0 }
         });
 
-        await newRoom.save(); // حفظ في قاعدة البيانات (هذا ما يمنع خطأ "الغرفة غير موجودة")
-        socket.join(roomCode);
-        socket.emit('room_created', { roomCode }); 
+        // السطر السحري: ننتظر حتى ينتهي الحفظ في قاعدة البيانات 100%
+        await newRoom.save(); 
         
-        console.log(`✅ تم إنشاء الغرفة بنجاح: ${roomCode}`);
+        socket.join(roomCode);
+        // الآن فقط نرسل الكود للاعب لينتقل لصفحة الانتظار
+        socket.emit('room_created', { roomCode: roomCode }); 
+        
+        console.log(`✅ تم حفظ الغرفة بنجاح في MongoDB: ${roomCode}`);
     } catch (error) {
-        console.error("خطأ في الإنشاء:", error);
+        console.error("❌ خطأ في إنشاء وحفظ الغرفة:", error);
+        socket.emit('room_error', { message: "حدث خطأ أثناء حفظ الغرفة، حاول ثانية." });
     }
 });
   socket.on('join_room_request', async (data) => {
